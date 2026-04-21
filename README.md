@@ -5,10 +5,6 @@
 <p align="center">
   <a href="release/AudioStudio-1.0.0.msi">
     <img src="https://img.shields.io/badge/⬇️-Скачать_MSI-0078D4?style=for-the-badge&logo=windows">
-  </a>
-  <a href="release/AudioStudio-1.0.0.zip">
-    <img src="https://img.shields.io/badge/📦-Portable_ZIP-orange?style=for-the-badge">
-  </a>
 </p>
 
 
