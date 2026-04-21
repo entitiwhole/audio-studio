@@ -1,0 +1,52 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "E:\\Atest1.0\\AudioStudio\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{31DD4566-6AE6-57FD-E997-62A90F2A58B4}|AudioStudio\\AudioStudio.csproj|e:\\atest1.0\\audiostudio\\audiostudio\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{31DD4566-6AE6-57FD-E997-62A90F2A58B4}|AudioStudio\\AudioStudio.csproj|solutionrelative:audiostudio\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{31DD4566-6AE6-57FD-E997-62A90F2A58B4}|AudioStudio\\AudioStudio.csproj|e:\\atest1.0\\audiostudio\\audiostudio\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{31DD4566-6AE6-57FD-E997-62A90F2A58B4}|AudioStudio\\AudioStudio.csproj|solutionrelative:audiostudio\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 1,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedHeight": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "MainWindow.xaml",
+              "DocumentMoniker": "E:\\Atest1.0\\AudioStudio\\AudioStudio\\MainWindow.xaml",
+              "RelativeDocumentMoniker": "AudioStudio\\MainWindow.xaml",
+              "ToolTip": "E:\\Atest1.0\\AudioStudio\\AudioStudio\\MainWindow.xaml",
+              "RelativeToolTip": "AudioStudio\\MainWindow.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2026-03-22T05:22:22.492Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "MainWindow.xaml.cs",
+              "DocumentMoniker": "E:\\Atest1.0\\AudioStudio\\AudioStudio\\MainWindow.xaml.cs",
+              "RelativeDocumentMoniker": "AudioStudio\\MainWindow.xaml.cs",
+              "ToolTip": "E:\\Atest1.0\\AudioStudio\\AudioStudio\\MainWindow.xaml.cs",
+              "RelativeToolTip": "AudioStudio\\MainWindow.xaml.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-03-22T05:22:19.217Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
