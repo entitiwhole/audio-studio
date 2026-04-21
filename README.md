@@ -1,6 +1,6 @@
 # AudioStudio
 
-[Скачать .msi](https://github.com/entitiwhole/audio-studio/releases/tag/Demo)
+[![Скачать .msi](https://github.com/entitiwhole/audio-studio/releases/tag/Demo)
 
 **AudioStudio** — многодорожечный редактор звуковых файлов для создания, редактирования и обработки аудиоматериала. Визуальный интерфейс для работы со звуковыми дорожками и набор встроенных инструментов обработки.
 
