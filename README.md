@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="release/AudioStudio-1.0.0.msi">
-    <img src="https://img.shields.io/badge/⬇️-Скачать_MSI-0078D4?style=for-the-badge&logo=windows">
+    <img src="https://img.shields.io/badge/⬇️-Скачать_MSI-0078D4?style=for-the-badge&logo=windows">(https://github.com/entitiwhole/audio-studio/releases/tag/Demo)
 </p>
 
 
