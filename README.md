@@ -1,9 +1,11 @@
 # AudioStudio
 
 <p align="center">
+  <a href="https://github.com/entitiwhole/audio-studio/releases/tag/Realese">
+    <img src="https://img.shields.io/badge/-Скачать_Релиз-8970e6?style=for-the-badge&logo=github&logoColor=white">
+  </a>
   <a href="https://github.com/entitiwhole/audio-studio/releases/tag/Prerelease">
     <img src="https://img.shields.io/badge/-Скачать_Demo-0078D4?style=for-the-badge&logo=github&logoColor=white">
-  </a>
 </p>
 
 **AudioStudio** — многодорожечный редактор звуковых файлов для создания, редактирования и обработки аудиоматериала. Визуальный интерфейс для работы со звуковыми дорожками и набор встроенных инструментов обработки.
