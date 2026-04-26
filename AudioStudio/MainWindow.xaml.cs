@@ -207,7 +207,7 @@ namespace AudioStudio
         private double pixelsPerSecond = 50;
         
         private DispatcherTimer? playTimer;
-        private DispatcherTimer? previewTimer;
+        private DispatcherTimer? _previewTimer;
         private bool isPlaying;
         private double currentTime;
         
@@ -224,8 +224,7 @@ namespace AudioStudio
         private readonly Dictionary<int, WriteableBitmap> _waveformBitmaps = new();
         private readonly Dictionary<int, float[]> _waveformPeaks = new();
         private bool _isUpdatingPlayhead = false;
-        private readonly DispatcherTimer? _playheadThrottle;
-        private double _lastPlayheadUpdate = 0;
+        private readonly double _lastPlayheadUpdate = 0;
         
         // Браузер файлов
         private string _rootPath = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);

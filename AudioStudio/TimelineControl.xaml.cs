@@ -241,7 +241,7 @@ public partial class TimelineControl : UserControl
         _playheadLine.Y2 = Math.Max(200, ActualHeight);
     }
     
-    public void InvalidateVisual()
+    public new void InvalidateVisual()
     {
         // Принудительная перерисовка ruler
         DrawRuler();
