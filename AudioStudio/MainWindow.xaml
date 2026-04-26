@@ -1,6 +1,7 @@
 <Window x:Class="AudioStudio.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:AudioStudio"
         Title="halo Blik - Audio Studio" 
         Height="800" Width="1400"
         MinHeight="600" MinWidth="1100"
@@ -219,7 +220,72 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <local:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
+        
+        <!-- Полный стиль TreeViewItem без проблемных биндингов -->
+        <Style TargetType="TreeViewItem">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="2"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        
+        <!-- Невидимый GridSplitter -->
+        <Style x:Key="InvisibleSplitter" TargetType="GridSplitter">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Width" Value="6"/>
+            <Setter Property="Template" Value="{x:Null}"/>
+        </Style>
     </Window.Resources>
+
+    <Window.Style>
+        <Style TargetType="Window">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Window">
+                        <Grid Background="{TemplateBinding Background}">
+                            <!-- Ресайз области -->
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="4"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="4"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="4"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="4"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <!-- Левый верхний угол -->
+                            <Rectangle Grid.Row="0" Grid.Column="0" Fill="Transparent" Cursor="SizeNWSE" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="TopLeft"/>
+                            <!-- Верх -->
+                            <Rectangle Grid.Row="0" Grid.Column="1" Fill="Transparent" Cursor="SizeNS" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="Top"/>
+                            <!-- Правый верхний угол -->
+                            <Rectangle Grid.Row="0" Grid.Column="2" Fill="Transparent" Cursor="SizeNESW" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="TopRight"/>
+                            <!-- Левый -->
+                            <Rectangle Grid.Row="1" Grid.Column="0" Fill="Transparent" Cursor="SizeWE" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="Left"/>
+                            <!-- Правый -->
+                            <Rectangle Grid.Row="1" Grid.Column="2" Fill="Transparent" Cursor="SizeWE" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="Right"/>
+                            <!-- Левый нижний угол -->
+                            <Rectangle Grid.Row="2" Grid.Column="0" Fill="Transparent" Cursor="SizeNESW" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="BottomLeft"/>
+                            <!-- Низ -->
+                            <Rectangle Grid.Row="2" Grid.Column="1" Fill="Transparent" Cursor="SizeNS" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="Bottom"/>
+                            <!-- Правый нижний угол -->
+                            <Rectangle Grid.Row="2" Grid.Column="2" Fill="Transparent" Cursor="SizeNWSE" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="BottomRight"/>
+                            
+                            <!-- Основной контент с Margin для областей ресайза -->
+                            <Border Grid.Row="1" Grid.Column="1" Background="{TemplateBinding Background}">
+                                <ContentPresenter/>
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Style>
 
     <Grid>
         <Grid.RowDefinitions>
@@ -263,8 +329,9 @@
         <!-- Основная область -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="220"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="220" MinWidth="150"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="*" MinWidth="200"/>
             </Grid.ColumnDefinitions>
 
             <!-- Левая панель - Браузер файлов -->
@@ -272,102 +339,77 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Заголовок -->
-                    <Border Grid.Row="0" Background="#FF2D2D30" Padding="8,6">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="📁 Проводник" Foreground="#FFAAAAAA" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                            <Button Grid.Column="1" Content="📂" Style="{StaticResource ToolButton}" Width="28" Height="24" Click="BrowseRootFolder_Click" ToolTip="Выбрать папку"/>
-                        </Grid>
-                    </Border>
+                    <!-- Поле пути + Фильтры -->
+                    <Grid Grid.Row="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        
+                        <Border Grid.Row="0" Background="#FF1E1E1E" Padding="8,6" BorderBrush="#FF3E3E42" BorderThickness="0,0,0,1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="📍" Foreground="#FF888888" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBox Grid.Column="1" x:Name="CurrentPathBox" Text="C:\\" 
+                                         Background="#FF1E1E1E" Foreground="#FFCCCCCC" 
+                                         BorderThickness="0" FontSize="11" VerticalContentAlignment="Center"
+                                         IsReadOnly="True"/>
+                                <Button Grid.Column="2" Content="📂" Style="{StaticResource ToolButton}" Width="28" Height="22" Click="BrowseRootFolder_Click" ToolTip="Выбрать папку"/>
+                            </Grid>
+                        </Border>
+                        
+                        <Border Grid.Row="1" Background="#FF2D2D30" Padding="8,4" BorderBrush="#FF3E3E42" BorderThickness="0,0,0,1">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="BtnAll" Content="All" Style="{StaticResource TabButton}" Click="FilterAll_Click"/>
+                                <Button x:Name="BtnDownloads" Content="Downloads" Style="{StaticResource TabButton}" Click="FilterDownloads_Click" Foreground="White"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
 
-                    <!-- Поле пути -->
-                    <Border Grid.Row="1" Background="#FF1E1E1E" Padding="8,6" BorderBrush="#FF3E3E42" BorderThickness="0,0,0,1">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="📍" Foreground="#FF888888" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBox Grid.Column="1" x:Name="CurrentPathBox" Text="C:\\" 
-                                     Background="#FF1E1E1E" Foreground="#FFCCCCCC" 
-                                     BorderThickness="0" FontSize="11" VerticalContentAlignment="Center"
-                                     IsReadOnly="True"/>
-                            <Button Grid.Column="2" Content="↑" Style="{StaticResource ToolButton}" Width="24" Height="22" Click="GoUp_Click" ToolTip="На уровень вверх"/>
-                        </Grid>
-                    </Border>
-
-                    <!-- Дерево папок -->
-                    <Border Grid.Row="2" Background="#FF252526" BorderBrush="#FF3E3E42" BorderThickness="0">
+                    <!-- Дерево папок и файлов -->
+                    <Border Grid.Row="1" Background="#FF252526" BorderBrush="#FF3E3E42" BorderThickness="0">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
                             <Border Grid.Row="0" Background="#FF2D2D30" Padding="8,4" BorderBrush="#FF3E3E42" BorderThickness="0,0,0,1">
-                                <TextBlock Text="📂 Папки" Foreground="#FFCCCCCC" FontSize="10"/>
+                                <TextBlock Text="Files" Foreground="#FFFFFFFF" FontSize="10" FontWeight="SemiBold"/>
                             </Border>
-                            <TreeView Grid.Row="1" x:Name="FolderTree" Background="#FF252526" Foreground="#FFCCCCCC" 
+                            <TreeView Grid.Row="1" x:Name="FolderTree" Background="#FF252526" Foreground="White" 
                                       BorderThickness="0" FontSize="11" Padding="4" Margin="0,4,0,0"
+                                      HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center"
                                       SelectedItemChanged="FolderTree_SelectedItemChanged">
                                 <TreeView.ItemTemplate>
                                     <HierarchicalDataTemplate ItemsSource="{Binding Children}">
                                         <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding Icon}" Margin="0,0,4,0"/>
-                                            <TextBlock Text="{Binding DisplayName}"/>
+                                            <TextBlock Text="{Binding Icon}" Foreground="#FFAAAAAA" Margin="0,0,6,0"/>
+                                            <TextBlock Text="{Binding DisplayName}" Foreground="White"/>
+                                            <TextBlock Text="{Binding Duration}" Foreground="#FF888888" FontSize="9" Margin="8,0,0,0"
+                                                       Visibility="{Binding IsDirectory, Converter={StaticResource InverseBoolToVis}}"/>
                                         </StackPanel>
                                     </HierarchicalDataTemplate>
                                 </TreeView.ItemTemplate>
                             </TreeView>
                         </Grid>
                     </Border>
-
-                    <!-- Список файлов -->
-                    <Border Grid.Row="3" Background="#FF1E1E1E" BorderBrush="#FF3E3E42" BorderThickness="0,1,0,0">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-                            
-                            <Border Grid.Row="0" Background="#FF2D2D30" Padding="8,4" BorderBrush="#FF3E3E42" BorderThickness="0,0,0,1">
-                                <TextBlock x:Name="FilesCountText" Text="🔊 Файлы: 0" Foreground="#FF888888" FontSize="10"/>
-                            </Border>
-                            
-                            <ListBox Grid.Row="1" x:Name="FileList" Background="#FF1E1E1E" 
-                                     BorderThickness="0" ItemContainerStyle="{StaticResource BrowserItem}"
-                                     MouseDoubleClick="FileList_MouseDoubleClick">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="{Binding Icon}" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Grid.Column="2" Text="{Binding Duration}" Foreground="#FF666666" FontSize="9" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </Grid>
-                    </Border>
                 </Grid>
             </Border>
 
+            <!-- Разделитель -->
+            <GridSplitter Grid.Column="1" Width="2"
+                          HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                          Background="Transparent" Cursor="SizeWE" ShowsPreview="True"/>
+
             <!-- Основная рабочая область -->
-            <Grid Grid.Column="1">
+            <Grid Grid.Column="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
@@ -419,9 +461,10 @@
 
                 <!-- Треки -->
                 <Border Grid.Row="1" Background="#FF1E1E1E" AllowDrop="True" Drop="OnDrop" DragOver="OnDragOver">
-                    <ScrollViewer x:Name="TracksScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                    <ScrollViewer x:Name="TracksScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Visible"
+                                  PanningMode="Both">
                         <Grid x:Name="TracksContainer">
-                            <StackPanel x:Name="TracksPanel"/>
+                            <StackPanel x:Name="TracksPanel" HorizontalAlignment="Left"/>
                         </Grid>
                     </ScrollViewer>
                 </Border>

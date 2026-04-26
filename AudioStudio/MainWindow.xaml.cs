@@ -1,10 +1,12 @@
 using System;
+using System.Globalization;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -138,10 +140,12 @@ namespace AudioStudio
         public string Name { get; set; } = "";
         public string FullPath { get; set; } = "";
         public string Extension { get; set; } = "";
-        public bool IsDirectory { get; set; }
-        public string Icon => IsDirectory ? "📁" : GetFileIcon(Extension);
+        public bool IsDirectory { get; set; } = false;
+        public string Icon => GetFileIcon(Extension);
         public string Duration { get; set; } = "";
         public long Size { get; set; }
+        public List<object> Children { get; set; } = new(); // для совместимости с TreeView
+        public string DisplayName => Name;
 
         public static string GetFileIcon(string ext)
         {
@@ -157,6 +161,20 @@ namespace AudioStudio
             };
         }
     }
+    
+    public class InverseBoolToVisibilityConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is bool boolValue)
+                return boolValue ? Visibility.Collapsed : Visibility.Visible;
+            return Visibility.Visible;
+        }
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
+        }
+    }
 
     public class FolderItem
     {
@@ -164,13 +182,16 @@ namespace AudioStudio
         public string FullPath { get; set; } = "";
         public string Icon => "📁";
         public string DisplayName => Name;
-        public List<FolderItem> Children { get; set; } = new();
+        public string Duration { get; set; } = "";
+        public bool IsDirectory { get; set; } = true;
+        public List<object> Children { get; set; } = new();
         public bool IsExpanded { get; set; }
         public bool IsLoaded { get; set; }
     }
 
     public partial class MainWindow : Window
     {
+        
         private AudioEngine _audio = new();
         private List<AudioClip> tracks = new();
         private int selectedTrackIndex = -1;
@@ -288,6 +309,104 @@ namespace AudioStudio
             Close();
         }
         
+        #region Window Resize
+        
+        private Point _resizeStart;
+        private Rect _windowStart;
+        private string _resizeDirection = "";
+        
+        private void Resize_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (WindowState == WindowState.Maximized) return;
+            
+            var element = sender as FrameworkElement;
+            if (element == null) return;
+            
+            _resizeDirection = element.Tag?.ToString() ?? "";
+            _resizeStart = e.GetPosition(this);
+            _windowStart = new Rect(Left, Top, ActualWidth, ActualHeight);
+            element.CaptureMouse();
+            element.MouseMove += Resize_MouseMove;
+            element.MouseLeftButtonUp += Resize_MouseLeftButtonUp;
+        }
+        
+        private void Resize_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed) return;
+            
+            var element = sender as FrameworkElement;
+            if (element == null || string.IsNullOrEmpty(_resizeDirection)) return;
+            
+            var pos = e.GetPosition(this);
+            var dx = pos.X - _resizeStart.X;
+            var dy = pos.Y - _resizeStart.Y;
+            
+            var newLeft = _windowStart.Left;
+            var newTop = _windowStart.Top;
+            var newWidth = _windowStart.Width;
+            var newHeight = _windowStart.Height;
+            
+            switch (_resizeDirection)
+            {
+                case "Left":
+                    newLeft = _windowStart.Left + dx;
+                    newWidth = _windowStart.Width - dx;
+                    break;
+                case "Right":
+                    newWidth = _windowStart.Width + dx;
+                    break;
+                case "Top":
+                    newTop = _windowStart.Top + dy;
+                    newHeight = _windowStart.Height - dy;
+                    break;
+                case "Bottom":
+                    newHeight = _windowStart.Height + dy;
+                    break;
+                case "TopLeft":
+                    newLeft = _windowStart.Left + dx;
+                    newTop = _windowStart.Top + dy;
+                    newWidth = _windowStart.Width - dx;
+                    newHeight = _windowStart.Height - dy;
+                    break;
+                case "TopRight":
+                    newTop = _windowStart.Top + dy;
+                    newWidth = _windowStart.Width + dx;
+                    newHeight = _windowStart.Height - dy;
+                    break;
+                case "BottomLeft":
+                    newLeft = _windowStart.Left + dx;
+                    newWidth = _windowStart.Width - dx;
+                    newHeight = _windowStart.Height + dy;
+                    break;
+                case "BottomRight":
+                    newWidth = _windowStart.Width + dx;
+                    newHeight = _windowStart.Height + dy;
+                    break;
+            }
+            
+            newWidth = Math.Max(800, newWidth);
+            newHeight = Math.Max(600, newHeight);
+            
+            Left = newLeft;
+            Top = newTop;
+            Width = newWidth;
+            Height = newHeight;
+        }
+        
+        private void Resize_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            var element = sender as FrameworkElement;
+            if (element != null)
+            {
+                element.MouseMove -= Resize_MouseMove;
+                element.MouseLeftButtonUp -= Resize_MouseLeftButtonUp;
+                element.ReleaseMouseCapture();
+            }
+            _resizeDirection = "";
+        }
+        
+        #endregion
+        
         #region File Browser
         
         private void InitializeBrowser()
@@ -369,7 +488,7 @@ namespace AudioStudio
                 
                 var downloadsItem = new FolderItem
                 {
-                    Name = "📥 Downloads",
+                    Name = "Downloads",
                     FullPath = downloadsPath,
                     IsLoaded = false
                 };
@@ -412,11 +531,12 @@ namespace AudioStudio
             
             try
             {
+                // Получаем подпапки
                 var dirs = Directory.GetDirectories(folder.FullPath)
                     .Select(d => new DirectoryInfo(d))
                     .Where(d => (d.Attributes & FileAttributes.Hidden) == 0)
                     .OrderBy(d => d.Name)
-                    .Take(50) // Лимит для производительности
+                    .Take(50)
                     .Select(d => new FolderItem 
                     { 
                         Name = d.Name, 
@@ -427,7 +547,6 @@ namespace AudioStudio
                 
                 foreach (var dir in dirs)
                 {
-                    // Проверяем есть ли подпапки
                     try
                     {
                         var hasSubs = Directory.GetDirectories(dir.FullPath).Any();
@@ -440,15 +559,32 @@ namespace AudioStudio
                     
                     folder.Children.Add(dir);
                 }
+                
+                // Получаем аудио файлы из этой папки
+                var audioFiles = Directory.GetFiles(folder.FullPath)
+                    .Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLower()))
+                    .ToList();
+                
+                foreach (var filePath in audioFiles)
+                {
+                    try
+                    {
+                        var info = new FileInfo(filePath);
+                        folder.Children.Add(new FileItem
+                        {
+                            Name = info.Name,
+                            FullPath = info.FullName,
+                            Extension = info.Extension.ToUpper(),
+                            IsDirectory = false,
+                            Size = info.Length,
+                            Duration = GetAudioDuration(info.FullName)
+                        });
+                    }
+                    catch { }
+                }
             }
-            catch (UnauthorizedAccessException)
-            {
-                // Игнорируем папки без доступа
-            }
-            catch (Exception)
-            {
-                // Игнорируем другие ошибки
-            }
+            catch (UnauthorizedAccessException) { }
+            catch (Exception) { }
         }
         
         private void Folder_Expanded(object sender, RoutedEventArgs e)
@@ -476,7 +612,7 @@ namespace AudioStudio
                         }
                         
                         // Удаляем placeholder
-                        folder.Children.RemoveAll(c => c.Name == "...");
+                        folder.Children.RemoveAll(c => c is FolderItem fi && fi.Name == "...");
                         FolderTree.Items.Refresh();
                     });
                 }
@@ -495,73 +631,33 @@ namespace AudioStudio
             {
                 _currentPath = folder.FullPath;
                 CurrentPathBox.Text = folder.FullPath;
-                LoadFolderContents(folder.FullPath);
+                
+                // Если папка не загружена - загружаем
+                if (!folder.IsLoaded)
+                {
+                    LoadSubFoldersSync(folder);
+                    FolderTree.Items.Refresh();
+                }
+            }
+            else if (e.NewValue is FileItem file)
+            {
+                // Файл - загружаем в трек
+                LoadFileToTrack(file.FullPath);
             }
         }
         
         private void LoadFolderContents(string path)
         {
-            _currentFiles.Clear();
-            
             try
             {
-                if (!Directory.Exists(path)) 
+                // Считаем файлы через TreeView
+                int fileCount = 0;
+                foreach (var item in FolderTree.ItemsSource as IEnumerable<FolderItem> ?? Enumerable.Empty<FolderItem>())
                 {
-                    StatusText.Text = "Папка не существует";
-                    FileList.ItemsSource = null;
-                    FilesCountText.Text = "🔊 Файлы: 0";
-                    return;
+                    fileCount += CountFilesRecursive(item);
                 }
                 
-                // Получаем аудио файлы
-                var audioFiles = Directory.GetFiles(path)
-                    .Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLower()))
-                    .ToList();
-                
-                foreach (var filePath in audioFiles)
-                {
-                    try
-                    {
-                        var info = new FileInfo(filePath);
-                        var ext = info.Extension.ToLower();
-                        
-                        var fileItem = new FileItem
-                        {
-                            Name = info.Name,
-                            FullPath = info.FullName,
-                            Extension = ext.ToUpper(), // .WAV, .MP3
-                            IsDirectory = false,
-                            Size = info.Length,
-                            Duration = GetAudioDuration(info.FullName)
-                        };
-                        
-                        _currentFiles.Add(fileItem);
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Error loading file {filePath}: {ex.Message}");
-                    }
-                }
-                
-                // Сортируем по имени
-                _currentFiles = _currentFiles.OrderBy(f => f.Name).ToList();
-                
-                // Принудительно обновляем UI
-                FileList.ItemsSource = null;
-                FileList.ItemsSource = _currentFiles;
-                FileList.Items.Refresh();
-                
-                var audioCount = _currentFiles.Count;
-                FilesCountText.Text = $"🔊 Файлы: {audioCount}";
-                
-                if (audioCount == 0)
-                {
-                    StatusText.Text = $"В папке нет аудио файлов ({string.Join(", ", AudioExtensions)})";
-                }
-                else
-                {
-                    StatusText.Text = $"Загружено файлов: {audioCount}";
-                }
+                StatusText.Text = $"Загружено файлов: {fileCount}";
             }
             catch (UnauthorizedAccessException)
             {
@@ -572,6 +668,19 @@ namespace AudioStudio
                 StatusText.Text = $"Ошибка: {ex.Message}";
                 System.Diagnostics.Debug.WriteLine($"LoadFolderContents error: {ex}");
             }
+        }
+        
+        private int CountFilesRecursive(FolderItem folder)
+        {
+            int count = 0;
+            foreach (var child in folder.Children)
+            {
+                if (child is FileItem)
+                    count++;
+                else if (child is FolderItem sub)
+                    count += CountFilesRecursive(sub);
+            }
+            return count;
         }
         
         private string GetAudioDuration(string path)
@@ -592,24 +701,8 @@ namespace AudioStudio
         
         private void FileList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
-            if (FileList.SelectedItem is FileItem file)
-            {
-                if (file.IsDirectory)
-                {
-                    // Переходим в папку
-                    _currentPath = file.FullPath;
-                    CurrentPathBox.Text = file.FullPath;
-                    LoadFolderContents(file.FullPath);
-                    
-                    // Раскрываем папку в дереве
-                    ExpandFolderInTree(file.FullPath);
-                }
-                else
-                {
-                    // Загружаем аудиофайл
-                    LoadFileToTrack(file.FullPath);
-                }
-            }
+            // Метод оставлен для обратной совместимости, но FileList больше не используется
+            // Двойной клик обрабатывается в FolderTree_SelectedItemChanged
         }
         
         private void ExpandFolderInTree(string path)
@@ -688,6 +781,45 @@ namespace AudioStudio
             }
         }
         
+        private void FilterAll_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_rootPath))
+            {
+                _rootPath = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
+            }
+            _currentPath = _rootPath;
+            CurrentPathBox.Text = _rootPath;
+            LoadDrives();
+            
+            BtnAll.Background = new SolidColorBrush(Color.FromRgb(62, 62, 66));
+            BtnDownloads.Background = Brushes.Transparent;
+        }
+        
+        private void FilterDownloads_Click(object sender, RoutedEventArgs e)
+        {
+            var downloadsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            if (Directory.Exists(downloadsPath))
+            {
+                _currentPath = downloadsPath;
+                CurrentPathBox.Text = downloadsPath;
+                
+                // Создаём TreeView с одной папкой Downloads
+                var downloadsItem = new FolderItem
+                {
+                    Name = "Downloads",
+                    FullPath = downloadsPath,
+                    IsLoaded = false
+                };
+                
+                FolderTree.ItemsSource = new List<FolderItem> { downloadsItem };
+                LoadSubFoldersSync(downloadsItem);
+                FolderTree.Items.Refresh();
+            }
+            
+            BtnDownloads.Background = new SolidColorBrush(Color.FromRgb(62, 62, 66));
+            BtnAll.Background = Brushes.Transparent;
+        }
+
         #endregion
 
         private void ShowHotkeys_Click(object sender, RoutedEventArgs e)
@@ -928,13 +1060,17 @@ namespace AudioStudio
                         new SolidColorBrush(Color.FromRgb(30, 30, 35)),
                     BorderBrush = new SolidColorBrush(Color.FromRgb(62, 62, 66)),
                     BorderThickness = new Thickness(0),
-                    Tag = track.TrackIndex
+                    Tag = track.TrackIndex,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    ClipToBounds = true
                 };
                 
                 var waveformCanvas = new Canvas
                 {
                     Background = Brushes.Transparent,
-                    Tag = track.TrackIndex
+                    Tag = track.TrackIndex,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top
                 };
                 
                 waveformCanvas.MouseLeftButtonDown += WaveformCanvas_MouseLeftButtonDown;
@@ -1964,7 +2100,12 @@ namespace AudioStudio
                 DrawTimeline();
             }
         }
-        
+
+        private void GridSplitter_DragDelta(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
+        {
+
+        }
+
         // ========== End Drag & Drop ==========
     }
 }

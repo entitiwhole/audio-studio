@@ -1,0 +1,32 @@
+# Build outputs
+bin/
+obj/
+publish/
+
+# Visual Studio
+*.user
+*.suo
+*.cache
+*.log
+
+# WiX build artifacts
+*.wixpdb
+*.wixobj
+
+# Installer output
+AudioStudioInstaller/bin/
+
+# Certificates and secrets
+*.pfx
+*.p12
+*.key
+
+# Logs and temp files
+*.log
+test.txt
+done.txt
+timestamp_now.txt
+
+# IDE
+.vs/
+.vscode/
