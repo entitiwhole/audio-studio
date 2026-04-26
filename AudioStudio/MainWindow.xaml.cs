@@ -2100,11 +2100,6 @@ namespace AudioStudio
             }
         }
 
-        private void GridSplitter_DragDelta(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
-        {
-
-        }
-
         // ========== End Drag & Drop ==========
     }
 }
