@@ -1,4 +1,4 @@
-name: .NET Core Desktop
+name: Build AudioStudio
 
 on:
   push:
@@ -7,30 +7,33 @@ on:
     branches: [ "main" ]
 
 jobs:
-
   build:
-
     runs-on: windows-latest
-
+    
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Install .NET
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 10.0.x
-
+    
     - name: Build Debug
-      run: dotnet build AudioStudio/AudioStudio.csproj -c Debug -p:Platform=x64
-
+      run: |
+        cd AudioStudio
+        dotnet build AudioStudio.csproj -c Debug -p:Platform=x64
+    
     - name: Build Release
-      run: dotnet build AudioStudio/AudioStudio.csproj -c Release -p:Platform=x64
-
-    - name: Upload artifacts
+      run: |
+        cd AudioStudio
+        dotnet build AudioStudio.csproj -c Release -p:Platform=x64
+    
+    - name: Upload build
+      if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: AudioStudio-build
+        name: AudioStudio-build-${{ github.run_id }}
         path: |
           AudioStudio/bin/Debug/
           AudioStudio/bin/Release/
+        retention-days: 7
