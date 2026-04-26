@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+    <!-- Installer Bundle with .NET Auto-Download -->
+    <Bundle Name="AudioStudio Demo"
+            Manufacturer="AudioStudio"
+            Version="1.0.0.0"
+            UpgradeCode="7c5e1f2a-8b4d-4e3f-a2b1-c9d0e5f6a7b5"
+            IconSourceFile="..\AudioStudio\app.ico">
+
+        <!-- Bootstrapper UI -->
+        <BootstrapperApplication SourceFile="BootstrapperTheme.html" />
+
+        <!-- Check .NET 10 Desktop Runtime -->
+        <util:RegistrySearch Id="Net10Check"
+                            Variable="NET10_INSTALLED"
+                            Root="HKLM"
+                            Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
+                            Format="Version"
+                            VariableValue="0" />
+
+        <Chain>
+            <!-- Download and install .NET 10 if not present -->
+            <ExePackage Id="Net10Runtime"
+                        DownloadUrl="https://dotnetcli.azureedge.net/dotnet/WindowsDesktop/10.0.5/dotnet-win-x64.exe"
+                        DetectCondition="NET10_INSTALLED"
+                        InstallCommand="/quiet /norestart"
+                        PerMachine="yes"
+                        Vital="yes" />
+
+            <!-- Main application -->
+            <MsiPackage Id="MainApp"
+                        SourceFile="AudioStudioDemo.msi"
+                        Vital="yes" />
+        </Chain>
+
+    </Bundle>
+</Wix>

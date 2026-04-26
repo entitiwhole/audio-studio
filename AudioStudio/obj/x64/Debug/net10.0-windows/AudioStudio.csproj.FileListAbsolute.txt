@@ -32,3 +32,6 @@ E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\TimelineContro
 E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\TimelineControl.g.cs
 E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\ClipControl.baml
 E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\ClipControl.g.cs
+E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\AudioStudio.sourcelink.json
+E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\GeneratedInternalTypeHelper.g.cs
+E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\AudioStudio_MarkupCompile.lref

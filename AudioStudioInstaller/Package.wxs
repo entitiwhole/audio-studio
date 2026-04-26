@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+    <!-- Installer Package with .NET Detection -->
+    <Package Name="AudioStudio Demo"
+             Manufacturer="AudioStudio"
+             Version="1.0.0.0"
+             UpgradeCode="7c5e1f2a-8b4d-4e3f-a2b1-c9d0e5f6a7b3"
+             Compressed="yes"
+             InstallerVersion="500"
+             InstallerExePrivileges="elevated">
+        
+        <MajorUpgrade DowngradeErrorMessage="Более новая версия уже установлена." />
+        <MediaTemplate EmbedCab="yes" />
+        
+        <Icon Id="AppIcon" SourceFile="..\AudioStudio\app.ico" />
+
+        <!-- Use standard InstallDir UI with Russian localization -->
+        <UIRef Id="WixUI_InstallDir" />
+
+        <!-- Localized strings -->
+        <ui:WixUI Id="WixUI_InstallDir"
+                  InstallDirDlgTitle="Выберите папку установки"
+                  InstallDirDlgDescription="Выберите папку для установки AudioStudio Demo"
+                  BrowseDlgTitle="Выберите папку"
+                  BrowseDlgDescription="Выберите папку для установки" />
+
+        <Icon Id="Icon" SourceFile="..\AudioStudio\app.ico" />
+        <Binary Id="IconBinary" SourceFile="..\AudioStudio\app.ico" />
+
+        <Feature Id="ProductFeature" Title="AudioStudio Demo" Level="1">
+            <ComponentGroupRef Id="ProductComponents" />
+            <ComponentRef Id="DesktopShortcutComponent" Condition="CREATE_DESKTOP_SHORTCUT" />
+            <ComponentRef Id="StartMenuShortcutComponent" Condition="CREATE_START_MENU_SHORTCUT" />
+        </Feature>
+
+        <StandardDirectory Id="ProgramFiles64Folder">
+            <Directory Id="INSTALLFOLDER" Name="AudioStudio Demo" />
+        </StandardDirectory>
+
+        <StandardDirectory Id="ProgramMenuFolder">
+            <Directory Id="AppMenuFolder" Name="AudioStudio Demo" />
+        </StandardDirectory>
+
+        <StandardDirectory Id="DesktopFolder" />
+
+        <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+            <!-- Main executable -->
+            <Component Id="MainExe" Guid="{11111111-1111-1111-1111-111111111111}">
+                <File Source="..\AudioStudio\publish\AudioStudio.exe" KeyPath="yes">
+                    <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="AudioStudio Demo"
+                              WorkingDirectory="INSTALLFOLDER" Icon="Icon"
+                              Condition="CREATE_DESKTOP_SHORTCUT" />
+                    <Shortcut Id="StartMenuShortcut" Directory="AppMenuFolder" Name="AudioStudio Demo"
+                              WorkingDirectory="INSTALLFOLDER" Icon="Icon"
+                              Condition="CREATE_START_MENU_SHORTCUT" />
+                </File>
+            </Component>
+            
+            <!-- Application DLL -->
+            <Component Id="AudioStudioDll" Guid="{22222222-2222-2222-2222-222222222222}">
+                <File Source="..\AudioStudio\publish\AudioStudio.dll" />
+            </Component>
+            
+            <!-- Configuration -->
+            <Component Id="DepsJson" Guid="{33333333-3333-3333-3333-333333333333}">
+                <File Source="..\AudioStudio\publish\AudioStudio.deps.json" />
+            </Component>
+            
+            <Component Id="RuntimeConfig" Guid="{44444444-4444-4444-4444-444444444444}">
+                <File Source="..\AudioStudio\publish\AudioStudio.runtimeconfig.json" />
+            </Component>
+            
+            <!-- .NET Runtime -->
+            <Component Id="CoreClr" Guid="{55555555-5555-5555-5555-555555555555}">
+                <File Source="..\AudioStudio\publish\coreclr.dll" />
+            </Component>
+            
+            <Component Id="ClrJit" Guid="{66666666-6666-6666-6666-666666666666}">
+                <File Source="..\AudioStudio\publish\clrjit.dll" />
+            </Component>
+            
+            <Component Id="HostFxr" Guid="{77777777-7777-7777-7777-777777777777}">
+                <File Source="..\AudioStudio\publish\hostfxr.dll" />
+            </Component>
+            
+            <Component Id="HostPolicy" Guid="{88888888-8888-8888-8888-888888888888}">
+                <File Source="..\AudioStudio\publish\hostpolicy.dll" />
+            </Component>
+            
+            <Component Id="Createdump" Guid="{99999999-9999-9999-9999-999999999999}">
+                <File Source="..\AudioStudio\publish\createdump.exe" />
+            </Component>
+            
+            <Component Id="Clretwrc" Guid="{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}">
+                <File Source="..\AudioStudio\publish\clretwrc.dll" />
+            </Component>
+            
+            <Component Id="Clrgcexp" Guid="{BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB}">
+                <File Source="..\AudioStudio\publish\clrgcexp.dll" />
+            </Component>
+            
+            <Component Id="Clrgc" Guid="{CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC}">
+                <File Source="..\AudioStudio\publish\clrgc.dll" />
+            </Component>
+            
+            <!-- Graphics -->
+            <Component Id="D3DCompiler" Guid="{DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD}">
+                <File Source="..\AudioStudio\publish\D3DCompiler_47_cor3.dll" />
+            </Component>
+            
+            <Component Id="DirectWrite" Guid="{EEEEEEEE-EEEE-EEEE-EEEE-EEEEEEEEEEEE}">
+                <File Source="..\AudioStudio\publish\DirectWriteForwarder.dll" />
+            </Component>
+            
+            <Component Id="Accessibility" Guid="{FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF}">
+                <File Source="..\AudioStudio\publish\Accessibility.dll" />
+            </Component>
+            
+            <!-- Czech resources -->
+            <Component Id="CsResources" Guid="{12345678-1234-1234-1234-123456789012}">
+                <File Source="..\AudioStudio\publish\cs\PresentationCore.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\PresentationFramework.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\PresentationUI.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\ReachFramework.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\System.Windows.Controls.Ribbon.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\System.Windows.Forms.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\System.Windows.Forms.Primitives.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\System.Windows.Input.Manipulations.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\System.Xaml.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\UIAutomationClient.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\UIAutomationClientSideProviders.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\UIAutomationProvider.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\UIAutomationTypes.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\WindowsBase.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\Microsoft.VisualBasic.Forms.resources.dll" />
+                <File Source="..\AudioStudio\publish\cs\System.Windows.Forms.Design.resources.dll" />
+            </Component>
+            
+            <!-- German resources -->
+            <Component Id="DeResources" Guid="{23456789-2345-2345-2345-234567890123}">
+                <File Source="..\AudioStudio\publish\de\PresentationCore.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\PresentationFramework.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\PresentationUI.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\ReachFramework.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\System.Windows.Controls.Ribbon.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\System.Windows.Forms.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\System.Windows.Forms.Primitives.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\System.Windows.Input.Manipulations.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\System.Xaml.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\UIAutomationClient.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\UIAutomationClientSideProviders.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\UIAutomationProvider.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\UIAutomationTypes.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\WindowsBase.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\Microsoft.VisualBasic.Forms.resources.dll" />
+                <File Source="..\AudioStudio\publish\de\System.Windows.Forms.Design.resources.dll" />
+            </Component>
+            
+            <!-- Spanish resources -->
+            <Component Id="EsResources" Guid="{3456789A-3456-3456-3456-3456789ABCDE}">
+                <File Source="..\AudioStudio\publish\es\PresentationCore.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\PresentationFramework.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\PresentationUI.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\ReachFramework.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\System.Windows.Controls.Ribbon.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\System.Windows.Forms.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\System.Windows.Forms.Primitives.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\System.Windows.Input.Manipulations.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\System.Xaml.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\UIAutomationClient.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\UIAutomationClientSideProviders.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\UIAutomationProvider.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\UIAutomationTypes.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\WindowsBase.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\Microsoft.VisualBasic.Forms.resources.dll" />
+                <File Source="..\AudioStudio\publish\es\System.Windows.Forms.Design.resources.dll" />
+            </Component>
+            
+            <!-- French resources -->
+            <Component Id="FrResources" Guid="{456789AB-4567-4567-4567-456789ABCDEF}">
+                <File Source="..\AudioStudio\publish\fr\PresentationCore.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\PresentationFramework.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\PresentationUI.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\ReachFramework.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\System.Windows.Controls.Ribbon.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\System.Windows.Forms.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\System.Windows.Forms.Primitives.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\System.Windows.Input.Manipulations.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\System.Xaml.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\UIAutomationClient.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\UIAutomationClientSideProviders.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\UIAutomationProvider.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\UIAutomationTypes.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\WindowsBase.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\Microsoft.VisualBasic.Forms.resources.dll" />
+                <File Source="..\AudioStudio\publish\fr\System.Windows.Forms.Design.resources.dll" />
+            </Component>
+            
+            <!-- Italian resources -->
+            <Component Id="ItResources" Guid="{56789ABC-5678-5678-5678-56789ABCDEF0}">
+                <File Source="..\AudioStudio\publish\it\PresentationCore.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\PresentationFramework.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\PresentationUI.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\ReachFramework.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\System.Windows.Controls.Ribbon.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\System.Windows.Forms.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\System.Windows.Forms.Primitives.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\System.Windows.Input.Manipulations.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\System.Xaml.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\UIAutomationClient.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\UIAutomationClientSideProviders.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\UIAutomationProvider.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\UIAutomationTypes.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\WindowsBase.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\Microsoft.VisualBasic.Forms.resources.dll" />
+                <File Source="..\AudioStudio\publish\it\System.Windows.Forms.Design.resources.dll" />
+            </Component>
+            
+            <!-- Japanese resources -->
+            <Component Id="JaResources" Guid="{6789ABCD-6789-6789-6789-6789ABCDEF01}">
+                <File Source="..\AudioStudio\publish\ja\PresentationCore.resources.dll" />
+                <File Source="..\AudioStudio\publish\ja\PresentationFramework.resources.dll" />
+                <File Source="..\AudioStudio\publish\ja\PresentationUI.resources.dll" />
+                <File Source="..\AudioStudio\publish\ja\ReachFramework.resources.dll" />
+                <File Source="..\AudioStudio\publish\ja\System.Windows.Controls.Ribbon.resources.dll" />
+                <File Source="..\AudioStudio\publish\ja\System.Windows.Forms.resources.dll" />
+                <File Source="..\AudioStudio\publish\ja\System.Windows.Forms.Primitives.resources.dll" />
+                <File Source="..\AudioStudio\publish\ja\Microsoft.VisualBasic.Forms.resources.dll" />
+                <File Source="..\AudioStudio\publish\ja\System.Windows.Forms.Design.resources.dll" />
+            </Component>
+        </ComponentGroup>
+
+        <!-- Desktop shortcut component -->
+        <Component Id="DesktopShortcutComponent" Guid="{789ABCDE-7890-7890-7890-7890ABCDEF12}" Directory="DesktopFolder">
+            <Shortcut Id="DesktopShortcutLink"
+                      Name="AudioStudio Demo"
+                      Description="Audio editing software"
+                      Target="[INSTALLFOLDER]AudioStudio.exe"
+                      WorkingDirectory="INSTALLFOLDER"
+                      Icon="Icon" />
+            <RegistryValue Root="HKCU" Key="Software\AudioStudio\Shortcuts" Name="Desktop" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+
+        <!-- Start menu shortcut component -->
+        <Component Id="StartMenuShortcutComponent" Guid="{89ABCDEF-8901-8901-8901-8901ABCDEF23}" Directory="AppMenuFolder">
+            <Shortcut Id="StartMenuShortcutLink"
+                      Name="AudioStudio Demo"
+                      Description="Audio editing software"
+                      Target="[INSTALLFOLDER]AudioStudio.exe"
+                      WorkingDirectory="INSTALLFOLDER"
+                      Icon="Icon" />
+            <RemoveFolder Id="RemoveAppFolder" On="uninstall" />
+            <RegistryValue Root="HKCU" Key="Software\AudioStudio\Shortcuts" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+
+        <!-- Properties -->
+        <Property Id="CREATE_DESKTOP_SHORTCUT" Value="1" />
+        <Property Id="CREATE_START_MENU_SHORTCUT" Value="1" />
+        <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+        <Property Id="INSTALLFOLDER" Value="[ProgramFiles64Folder]AudioStudio Demo" />
+
+        <!-- Detect .NET 10 Desktop Runtime -->
+        <util:RegistrySearch Id="NetDesktop10Check"
+                            Variable="NET10DESKTOP_INSTALLED"
+                            Root="HKLM"
+                            Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
+                            Value="10.0"
+                            Format="Version"
+                            Comparison="greaterThanOrEqual"
+                            VariableValue="0" />
+
+    </Package>
+</Wix>

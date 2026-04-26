@@ -76,7 +76,7 @@ namespace AudioStudio {
                 return;
             }
             _contentLoaded = true;
-            System.Uri resourceLocater = new System.Uri("/AudioStudio;V1.0.0.0;component/clipcontrol.xaml", System.UriKind.Relative);
+            System.Uri resourceLocater = new System.Uri("/AudioStudio;component/clipcontrol.xaml", System.UriKind.Relative);
             
             #line 1 "..\..\..\..\ClipControl.xaml"
             System.Windows.Application.LoadComponent(this, resourceLocater);
