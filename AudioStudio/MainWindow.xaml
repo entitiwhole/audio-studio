@@ -442,7 +442,10 @@
                 </Border>
 
                 <!-- Треки -->
-                <Border Grid.Row="1" Background="#FF1E1E1E" AllowDrop="True" Drop="OnDrop" DragOver="OnDragOver">
+                <Border Grid.Row="1" Background="#FF1E1E1E" x:Name="TracksBorder"
+                        AllowDrop="True" Drop="OnDrop" DragOver="OnDragOver" 
+                        DragEnter="OnDragEnter" DragLeave="OnDragLeave"
+                        MouseLeftButtonDown="TracksBorder_MouseDown">
                     <ScrollViewer x:Name="TracksScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Visible"
                                   PanningMode="Both">
                         <Grid x:Name="TracksContainer">
