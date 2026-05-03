@@ -72,13 +72,13 @@
 *[Добавь скриншоты после установщика]*
 ```
 📷 Главное окно
-![Banner]("C:\Users\Admin\Downloads\2026-05-03_22-40-02.png")
+![Banner](C:\Users\Admin\Downloads\2026-05-03_22-40-02.png)
 
 📷 Timeline с клипами
-![Banner]("C:\Users\Admin\Downloads\2026-05-03_22-43-51.png")
+![Banner](C:\Users\Admin\Downloads\2026-05-03_22-43-51.png)
 
 📷 Браузер файлов
-![Banner]("C:\Users\Admin\Downloads\2026-05-03_22-40-44.png")
+![Banner](C:\Users\Admin\Downloads\2026-05-03_22-40-44.png)
 ```
 
 ---
