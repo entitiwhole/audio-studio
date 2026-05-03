@@ -1035,10 +1035,12 @@ namespace AudioStudio
                 };
                 
                 // Drag-drop обработчики для конкретного трека (FL Studio стиль)
-                labelPanel.DragEnter += Track_DragEnter;
-                labelPanel.DragLeave += Track_DragLeave;
-                labelPanel.DragOver += Track_DragOver;
-                labelPanel.Drop += Track_Drop;
+                // NOTE: Для внешних файлов обрабатываем на родительском TracksBorder
+                // Этот обработчик оставлен для будущего использования (drag между треками)
+                // labelPanel.DragEnter += Track_DragEnter;
+                // labelPanel.DragLeave += Track_DragLeave;
+                // labelPanel.DragOver += Track_DragOver;
+                // labelPanel.Drop += Track_Drop;
                 
                 var labelGrid = new Grid();
                 
@@ -2278,13 +2280,54 @@ namespace AudioStudio
             StatusText.Text = "Готов к работе";
         }
         
+        // Preview обработчики - перехватывают drag дочерних элементов
+        private void OnPreviewDragEnter(object sender, DragEventArgs e)
+        {
+            // Вызываем основной обработчик
+            OnDragEnter(sender, e);
+        }
+        
+        private void OnPreviewDragLeave(object sender, DragEventArgs e)
+        {
+            OnDragLeave(sender, e);
+        }
+        
+        private void OnPreviewDragOver(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                e.Effects = DragDropEffects.Copy;
+                
+                // Используем оригинальныйsender для позиции (Border)
+                var point = e.GetPosition(TracksPanel);
+                int hoveredTrack = (int)(point.Y / (TrackHeight + TrackMargin));
+                
+                if (hoveredTrack < 0) hoveredTrack = 0;
+                if (hoveredTrack >= tracks.Count) hoveredTrack = tracks.Count - 1;
+                
+                if (hoveredTrack != _dragHoveredTrackIndex)
+                {
+                    _dragHoveredTrackIndex = hoveredTrack;
+                    UpdateDropIndicator();
+                }
+            }
+            else
+            {
+                e.Effects = DragDropEffects.None;
+            }
+            e.Handled = true;
+        }
+        
         private void OnDragOver(object sender, DragEventArgs e)
         {
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 e.Effects = DragDropEffects.Copy;
                 
-                var point = e.GetPosition(TracksContainer);
+                // Получаем позицию относительно TracksPanel (где лежат треки)
+                var point = e.GetPosition(TracksPanel);
+                
+                // Вычисляем какой трек под курсором
                 int hoveredTrack = (int)(point.Y / (TrackHeight + TrackMargin));
                 
                 // Ограничиваем диапазон

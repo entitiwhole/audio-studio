@@ -445,7 +445,10 @@
                 <Border Grid.Row="1" Background="#FF1E1E1E" x:Name="TracksBorder"
                         AllowDrop="True" Drop="OnDrop" DragOver="OnDragOver" 
                         DragEnter="OnDragEnter" DragLeave="OnDragLeave"
-                        MouseLeftButtonDown="TracksBorder_MouseDown">
+                        MouseLeftButtonDown="TracksBorder_MouseDown"
+                        PreviewDragOver="OnPreviewDragOver"
+                        PreviewDragEnter="OnPreviewDragEnter"
+                        PreviewDragLeave="OnPreviewDragLeave">
                     <ScrollViewer x:Name="TracksScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Visible"
                                   PanningMode="Both">
                         <Grid x:Name="TracksContainer">
