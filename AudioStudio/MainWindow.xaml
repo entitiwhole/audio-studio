@@ -4,11 +4,18 @@
         xmlns:local="clr-namespace:AudioStudio"
         Title="halo Blik - Audio Studio" 
         Height="800" Width="1400"
-        MinHeight="600" MinWidth="1100"
+        MinHeight="1" MinWidth="1100"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
-        AllowsTransparency="True"
-        Background="#FF2D2D30">
+        ResizeMode="CanResize"
+        Background="Transparent">
+
+    <WindowChrome.WindowChrome>
+        <WindowChrome CornerRadius="0" 
+                      GlassFrameThickness="0" 
+                      ResizeBorderThickness="8"
+                      CaptionHeight="0"/>
+    </WindowChrome.WindowChrome>
 
     <Window.Resources>
         <Style x:Key="MenuButton" TargetType="Button">
@@ -220,10 +227,10 @@
                 </Setter.Value>
             </Setter>
         </Style>
-        
+
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <local:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
-        
+
         <!-- Полный стиль TreeViewItem без проблемных биндингов -->
         <Style TargetType="TreeViewItem">
             <Setter Property="Foreground" Value="White"/>
@@ -232,7 +239,7 @@
             <Setter Property="Padding" Value="2"/>
             <Setter Property="Background" Value="Transparent"/>
         </Style>
-        
+
         <!-- Невидимый GridSplitter -->
         <Style x:Key="InvisibleSplitter" TargetType="GridSplitter">
             <Setter Property="Background" Value="Transparent"/>
@@ -241,70 +248,44 @@
         </Style>
     </Window.Resources>
 
-    <Window.Style>
-        <Style TargetType="Window">
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Window">
-                        <Grid Background="{TemplateBinding Background}">
-                            <!-- Ресайз области -->
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="4"/>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="4"/>
-                            </Grid.RowDefinitions>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="4"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="4"/>
-                            </Grid.ColumnDefinitions>
-                            
-                            <!-- Левый верхний угол -->
-                            <Rectangle Grid.Row="0" Grid.Column="0" Fill="Transparent" Cursor="SizeNWSE" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="TopLeft"/>
-                            <!-- Верх -->
-                            <Rectangle Grid.Row="0" Grid.Column="1" Fill="Transparent" Cursor="SizeNS" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="Top"/>
-                            <!-- Правый верхний угол -->
-                            <Rectangle Grid.Row="0" Grid.Column="2" Fill="Transparent" Cursor="SizeNESW" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="TopRight"/>
-                            <!-- Левый -->
-                            <Rectangle Grid.Row="1" Grid.Column="0" Fill="Transparent" Cursor="SizeWE" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="Left"/>
-                            <!-- Правый -->
-                            <Rectangle Grid.Row="1" Grid.Column="2" Fill="Transparent" Cursor="SizeWE" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="Right"/>
-                            <!-- Левый нижний угол -->
-                            <Rectangle Grid.Row="2" Grid.Column="0" Fill="Transparent" Cursor="SizeNESW" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="BottomLeft"/>
-                            <!-- Низ -->
-                            <Rectangle Grid.Row="2" Grid.Column="1" Fill="Transparent" Cursor="SizeNS" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="Bottom"/>
-                            <!-- Правый нижний угол -->
-                            <Rectangle Grid.Row="2" Grid.Column="2" Fill="Transparent" Cursor="SizeNWSE" MouseLeftButtonDown="Resize_MouseLeftButtonDown" Tag="BottomRight"/>
-                            
-                            <!-- Основной контент с Margin для областей ресайза -->
-                            <Border Grid.Row="1" Grid.Column="1" Background="{TemplateBinding Background}">
-                                <ContentPresenter/>
-                            </Border>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-    </Window.Style>
+    <!-- Основной контейнер для перекрытия системной линии -->
+    <Border Background="#FF2D2D30">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="0"/>
+                <RowDefinition Height="44"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Resize сверху -->
+            <Border Grid.Row="0" Background="Transparent" Cursor="SizeNS"
+                    MouseLeftButtonDown="Window_MouseLeftButtonDown" Tag="Top"/>
+            
+            <!-- Resize справа -->
+            <Border Grid.Row="1" Grid.RowSpan="3" Width="6" HorizontalAlignment="Right" Background="Transparent" 
+                    Cursor="SizeWE" MouseLeftButtonDown="Window_MouseLeftButtonDown" Tag="Right"/>
+            
+            <!-- Resize снизу -->
+            <Border Grid.Row="3" Height="6" VerticalAlignment="Bottom" Background="Transparent" 
+                    Cursor="SizeNS" MouseLeftButtonDown="Window_MouseLeftButtonDown" Tag="Bottom"/>
+            
+            <!-- Resize угол -->
+            <Border Grid.Row="3" Width="6" Height="6" HorizontalAlignment="Right" VerticalAlignment="Bottom" 
+                    Background="Transparent" Cursor="SizeNWSE" MouseLeftButtonDown="Window_MouseLeftButtonDown" Tag="BottomRight"/>
 
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="32"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+            <!-- Заголовок -->
+            <Border Grid.Row="1" Background="#FF1A1A2E" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="197*"/>
+                        <ColumnDefinition Width="801*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-        <!-- Кастомный заголовок -->
-        <Border Grid.Row="0" Background="#FF1A1A2E" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <!-- Меню -->
-                <StackPanel Orientation="Horizontal" Margin="10,0">
+                    <!-- Меню -->
+                    <StackPanel Orientation="Horizontal" Margin="10,0,10,0">
                     <Button Content="File" Style="{StaticResource MenuButton}" Click="OpenFile_Click"/>
                     <Button Content="Hotkeys" Style="{StaticResource MenuButton}" Click="ShowHotkeys_Click"/>
                     <Button Content="Instruments" Style="{StaticResource MenuButton}" Click="ApplyEffects_Click"/>
@@ -312,13 +293,13 @@
                 </StackPanel>
 
                 <!-- Логотип (центр) -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="-100,0,0,0">
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="224,0,0,0">
                     <TextBlock Text="halo" FontWeight="Bold" FontSize="14" Foreground="#FF7881FF"/>
                     <TextBlock Text=" Blik" FontWeight="Bold" FontSize="14" Foreground="White"/>
                 </StackPanel>
 
                 <!-- Кнопки управления окном -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                <StackPanel Grid.Column="3" Orientation="Horizontal">
                     <Button Content="—" Style="{StaticResource WindowButton}" Click="Minimize_Click"/>
                     <Button x:Name="MaximizeBtn" Content="☐" Style="{StaticResource WindowButton}" Click="Maximize_Click"/>
                     <Button Content="✕" Style="{StaticResource CloseButton}" Click="Close_Click"/>
@@ -326,16 +307,17 @@
             </Grid>
         </Border>
 
-        <!-- Основная область -->
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="220" MinWidth="150"/>
-                <ColumnDefinition Width="2"/>
+            <!-- Основная область -->
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" MinWidth="150" x:Name="BrowserColumn"/>
+                <ColumnDefinition Width="4"/>
+                <!-- Разделитель -->
                 <ColumnDefinition Width="*" MinWidth="200"/>
             </Grid.ColumnDefinitions>
 
             <!-- Левая панель - Браузер файлов -->
-            <Border Grid.Column="0" Background="#FF252526" BorderBrush="#FF3E3E42" BorderThickness="0,0,1,0">
+            <Border Grid.Column="0" Background="#FF252526">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -348,7 +330,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
-                        
+
                         <Border Grid.Row="0" Background="#FF1E1E1E" Padding="8,6" BorderBrush="#FF3E3E42" BorderThickness="0,0,0,1">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -364,7 +346,7 @@
                                 <Button Grid.Column="2" Content="📂" Style="{StaticResource ToolButton}" Width="28" Height="22" Click="BrowseRootFolder_Click" ToolTip="Выбрать папку"/>
                             </Grid>
                         </Border>
-                        
+
                         <Border Grid.Row="1" Background="#FF2D2D30" Padding="8,4" BorderBrush="#FF3E3E42" BorderThickness="0,0,0,1">
                             <StackPanel Orientation="Horizontal">
                                 <Button x:Name="BtnAll" Content="All" Style="{StaticResource TabButton}" Click="FilterAll_Click"/>
@@ -403,10 +385,10 @@
                 </Grid>
             </Border>
 
-            <!-- Разделитель -->
-            <GridSplitter Grid.Column="1" Width="2"
-                          HorizontalAlignment="Center" VerticalAlignment="Stretch"
-                          Background="Transparent" Cursor="SizeWE" ShowsPreview="True"/>
+            <!-- Разделитель между браузером и треками -->
+            <Border Grid.Column="1" Background="#FF3E3E42" 
+                    MouseLeftButtonDown="Splitter_MouseLeftButtonDown"
+                    Cursor="SizeWE"/>
 
             <!-- Основная рабочая область -->
             <Grid Grid.Column="2">
@@ -437,14 +419,14 @@
                             <Button Content="📄" Style="{StaticResource ToolButton}" Click="Copy_Click" IsEnabled="False" x:Name="BtnCopy" ToolTip="Копировать"/>
                             <Button Content="📋" Style="{StaticResource ToolButton}" Click="Paste_Click" IsEnabled="False" x:Name="BtnPaste" ToolTip="Вставить"/>
                             <Button Content="🗑" Style="{StaticResource ToolButton}" Click="Delete_Click" IsEnabled="False" x:Name="BtnDelete" ToolTip="Удалить"/>
-                            
+
                             <Rectangle Width="1" Fill="#FF555555" Margin="10,0"/>
-                            
+
                             <Button Content="↶" Style="{StaticResource ToolButton}" Click="Undo_Click" x:Name="BtnUndo" ToolTip="Отменить"/>
                             <Button Content="↷" Style="{StaticResource ToolButton}" Click="Redo_Click" x:Name="BtnRedo" ToolTip="Вернуть"/>
-                            
+
                             <Rectangle Width="1" Fill="#FF555555" Margin="10,0"/>
-                            
+
                             <Button Content="🎧" Style="{StaticResource ToolButton}" ToolTip="Соло"/>
                             <Button Content="🔇" Style="{StaticResource ToolButton}" ToolTip="Мьют"/>
                         </StackPanel>
@@ -472,7 +454,7 @@
         </Grid>
 
         <!-- Нижняя панель - Статус -->
-        <Border Grid.Row="2" Background="#FF323233" Padding="15,8" BorderBrush="#FF3E3E42" BorderThickness="0,1,0,0">
+        <Border Grid.Row="3" Background="#FF323233" Padding="15,8" BorderBrush="#FF3E3E42" BorderThickness="0,1,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -500,4 +482,5 @@
             </Grid>
         </Border>
     </Grid>
+</Border>
 </Window>

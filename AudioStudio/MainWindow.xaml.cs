@@ -193,6 +193,7 @@ namespace AudioStudio
     {
         
         private AudioEngine _audio = new();
+        
         private List<AudioClip> tracks = new();
         private int selectedTrackIndex = -1;
         private int focusedClipIndex = -1;
@@ -268,7 +269,10 @@ namespace AudioStudio
                 InitializeBrowser();
             };
             
-            SizeChanged += (s, e) => DrawTimeline();
+            SizeChanged += (s, e) => 
+            {
+                if (!_isResizing) DrawTimeline();
+            };
             
         }
         
@@ -313,6 +317,7 @@ namespace AudioStudio
         private Point _resizeStart;
         private Rect _windowStart;
         private string _resizeDirection = "";
+        private bool _isResizing = false;
         
         private void Resize_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -352,6 +357,7 @@ namespace AudioStudio
                     newWidth = _windowStart.Width - dx;
                     break;
                 case "Right":
+                    _isResizing = true;
                     newWidth = _windowStart.Width + dx;
                     break;
                 case "Top":
@@ -359,6 +365,7 @@ namespace AudioStudio
                     newHeight = _windowStart.Height - dy;
                     break;
                 case "Bottom":
+                    _isResizing = true;
                     newHeight = _windowStart.Height + dy;
                     break;
                 case "TopLeft":
@@ -378,6 +385,7 @@ namespace AudioStudio
                     newHeight = _windowStart.Height + dy;
                     break;
                 case "BottomRight":
+                    _isResizing = true;
                     newWidth = _windowStart.Width + dx;
                     newHeight = _windowStart.Height + dy;
                     break;
@@ -402,6 +410,23 @@ namespace AudioStudio
                 element.ReleaseMouseCapture();
             }
             _resizeDirection = "";
+            _isResizing = false;
+            DrawTimeline();
+        }
+        
+        // ========== Window-level Resize Handlers ==========
+        private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            var element = sender as FrameworkElement;
+            if (element?.Tag == null) return;
+            
+            _resizeDirection = element.Tag.ToString();
+            _resizeStart = e.GetPosition(this);
+            _windowStart = new Rect(Left, Top, ActualWidth, ActualHeight);
+            
+            element.CaptureMouse();
+            element.MouseMove += Resize_MouseMove;
+            element.MouseLeftButtonUp += Resize_MouseLeftButtonUp;
         }
         
         #endregion
@@ -1290,6 +1315,82 @@ namespace AudioStudio
             }
         }
 
+        // ========== Browser/Tracks Splitter ==========
+        private Point _splitterStart;
+        private double _splitterStartWidth;
+        private bool _isSplitterDragging = false;
+        
+        private void Splitter_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 1)
+            {
+                _isSplitterDragging = true;
+                _splitterStart = e.GetPosition(this);
+                _splitterStartWidth = BrowserColumn.Width.Value;
+                
+                var border = sender as Border;
+                if (border != null)
+                {
+                    border.CaptureMouse();
+                    border.MouseMove += Splitter_MouseMove;
+                    border.MouseLeftButtonUp += Splitter_MouseLeftButtonUp;
+                }
+                
+                e.Handled = true;
+            }
+        }
+        
+        private void Splitter_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (_isSplitterDragging && e.LeftButton == MouseButtonState.Pressed)
+            {
+                var pos = e.GetPosition(this);
+                var dx = pos.X - _splitterStart.X;
+                var newWidth = _splitterStartWidth + dx;
+                
+                // Ограничения
+                newWidth = Math.Max(150, newWidth);
+                newWidth = Math.Min(ActualWidth - 200, newWidth);
+                
+                BrowserColumn.Width = new GridLength(newWidth);
+            }
+        }
+        
+        private void Splitter_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            _isSplitterDragging = false;
+            
+            var border = sender as Border;
+            if (border != null)
+            {
+                border.MouseMove -= Splitter_MouseMove;
+                border.MouseLeftButtonUp -= Splitter_MouseLeftButtonUp;
+                border.ReleaseMouseCapture();
+            }
+            
+            DrawTimeline();
+            e.Handled = true;
+        }
+        
+        // ========== GridSplitter Handlers ==========
+        private bool _isLayoutUpdating = false;
+        
+        private void GridSplitter_DragStarted(object sender, System.Windows.Controls.Primitives.DragStartedEventArgs e)
+        {
+            _isLayoutUpdating = true;
+        }
+        
+        private void GridSplitter_DragDelta(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
+        {
+            // GridSplitter автоматически изменяет размеры BrowserColumn
+        }
+        
+        private void GridSplitter_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
+        {
+            _isLayoutUpdating = false;
+            DrawTimeline();
+        }
+        
         private void DrawTimeline()
         {
             UpdateTrackLabels();
