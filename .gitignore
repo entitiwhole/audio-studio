@@ -15,6 +15,7 @@ publish/
 
 # Installer output
 AudioStudioInstaller/bin/
+AudioStudioInstaller/Output/
 
 # Certificates and secrets
 *.pfx
@@ -26,7 +27,11 @@ AudioStudioInstaller/bin/
 test.txt
 done.txt
 timestamp_now.txt
+msg_fix.txt
 
 # IDE
 .vs/
 .vscode/
+
+# TalkCody
+.talkcody/

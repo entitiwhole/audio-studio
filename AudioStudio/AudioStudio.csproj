@@ -9,6 +9,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Platforms>AnyCPU;x64</Platforms>
     <NoWarn>CS0169;CS0414;CS8600;CS8602;CS8604;CS8618;CS8625</NoWarn>
+    <ApplicationIcon>hd_067e60e1d37959fea8c10910f1bec3f4-_1_-1.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
