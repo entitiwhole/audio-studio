@@ -219,6 +219,8 @@ namespace AudioStudio
         private const int TrackMargin = 3;
         private const int LabelWidth = 70;
         private const double MinPixelsPerSecond = 5;
+        private const int MaxTracks = 50; // Ограничение на количество треков
+        private const int MaxClipsPerTrack = 100; // Ограничение на клипы
 
         // ========== ОПТИМИЗАЦИЯ: Поля для оптимизации ==========
         private readonly WaveformCache _waveformCache = new();
@@ -309,6 +311,23 @@ namespace AudioStudio
         
         private void Close_Click(object sender, RoutedEventArgs e)
         {
+            // Очищаем память перед закрытием
+            _waveformPeaks.Clear();
+            _waveformBitmaps.Clear();
+            _waveformCache.Clear();
+            
+            foreach (var track in tracks)
+            {
+                if (track.Samples != null)
+                {
+                    track.Samples = Array.Empty<float>();
+                }
+            }
+            tracks.Clear();
+            
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            
             Close();
         }
         
@@ -1487,6 +1506,17 @@ namespace AudioStudio
         {
             try
             {
+                // Проверка памяти перед загрузкой
+                long memUsed = GC.GetTotalMemory(false);
+                if (memUsed > 500_000_000) // > 500MB
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        StatusText.Text = "Мало памяти! Очистите треки.";
+                    });
+                    return;
+                }
+                
                 Dispatcher.Invoke(() =>
                 {
                     SaveUndoState();
@@ -1502,6 +1532,16 @@ namespace AudioStudio
                 {
                     sampleRate = reader.WaveFormat.SampleRate;
                     channels = reader.WaveFormat.Channels;
+                    
+                    // Ограничение размера файла (100MB)
+                    if (reader.Length > 100_000_000)
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            StatusText.Text = "Файл слишком большой (макс 100MB)";
+                        });
+                        return;
+                    }
                     
                     // Оптимизация: выделяем память сразу
                     var totalSamples = (int)(reader.Length / sizeof(float));
@@ -1606,6 +1646,17 @@ namespace AudioStudio
 
         private void RebuildMixer()
         {
+            // Очищаем старые waveform при перезагрузке
+            if (tracks.Count < _waveformPeaks.Count)
+            {
+                // Удаляем пики удалённых треков
+                for (int i = tracks.Count; i < _waveformPeaks.Count; i++)
+                {
+                    _waveformPeaks.Remove(i);
+                    _waveformBitmaps.Remove(i);
+                }
+            }
+            
             _audio.LoadTracks(tracks);
         }
         
@@ -1974,6 +2025,12 @@ namespace AudioStudio
 
         private void AddTrack_Click(object sender, RoutedEventArgs e)
         {
+            if (tracks.Count >= MaxTracks)
+            {
+                StatusText.Text = $"Достигнут лимит треков ({MaxTracks})";
+                return;
+            }
+            
             SaveUndoState();
             tracks.Add(CreateEmptyTrack(tracks.Count));
             DrawTimeline();
@@ -1986,6 +2043,15 @@ namespace AudioStudio
             if (tracks.Count <= 1) return;
             
             SaveUndoState();
+            
+            // Очищаем память удаляемого трека
+            var lastTrack = tracks[tracks.Count - 1];
+            if (lastTrack.Samples != null)
+            {
+                lastTrack.Samples = Array.Empty<float>();
+            }
+            _waveformPeaks.Remove(tracks.Count - 1);
+            
             tracks.RemoveAt(tracks.Count - 1);
             
             if (selectedTrackIndex >= tracks.Count)
@@ -1994,6 +2060,11 @@ namespace AudioStudio
             RebuildMixer();
             DrawTimeline();
             UpdateTrackLabels();
+            
+            // Принудительная сборка мусора
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            
             StatusText.Text = "Дорожка удалена";
         }
 

@@ -11,13 +11,9 @@ E:\Atest1.0\AudioStudio\AudioStudio\bin\x64\Debug\net10.0-windows\NAudio.Wasapi.
 E:\Atest1.0\AudioStudio\AudioStudio\bin\x64\Debug\net10.0-windows\NAudio.WinForms.dll
 E:\Atest1.0\AudioStudio\AudioStudio\bin\x64\Debug\net10.0-windows\NAudio.WinMM.dll
 E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\AudioStudio.csproj.AssemblyReference.cache
-E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\ClipControl.baml
 E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\InstrumentsWindow.baml
-E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\TimelineControl.baml
-E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\ClipControl.g.cs
 E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\InstrumentsWindow.g.cs
 E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\MainWindow.g.cs
-E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\TimelineControl.g.cs
 E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\App.g.cs
 E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\GeneratedInternalTypeHelper.g.cs
 E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\AudioStudio_MarkupCompile.cache
@@ -35,3 +31,7 @@ E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\refint\AudioSt
 E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\AudioStudio.pdb
 E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\AudioStudio.genruntimeconfig.cache
 E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\ref\AudioStudio.dll
+E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\Views\ClipControl.baml
+E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\Views\TimelineControl.baml
+E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\Views\ClipControl.g.cs
+E:\Atest1.0\AudioStudio\AudioStudio\obj\x64\Debug\net10.0-windows\Views\TimelineControl.g.cs
