@@ -153,4 +153,42 @@ public class AudioEngine
     }
     
     public bool IsPlaying => _clock.IsRunning;
+    
+    // Preview - играет одиночные сэмплы (для Instruments window)
+    public void PlayPreview(float[] samples, int sampleRate, int channels)
+    {
+        Stop();
+        
+        var format = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
+        var provider = new ClipSampleProvider(samples, sampleRate, channels, 0);
+        
+        ISampleProvider formattedProvider = provider;
+        
+        // Ресемплинг если нужно
+        if (sampleRate != _masterSampleRate)
+        {
+            formattedProvider = new WdlResamplingSampleProvider(formattedProvider, _masterSampleRate);
+        }
+        
+        // Приведение каналов
+        if (channels == 1 && _masterChannels == 2)
+        {
+            formattedProvider = new MonoToStereoSampleProvider(formattedProvider);
+        }
+        
+        _mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(_masterSampleRate, _masterChannels));
+        _mixer.AddMixerInput(formattedProvider);
+        
+        _waveOut = new WaveOutEvent { DesiredLatency = 100 };
+        _waveOut.Init(_mixer);
+        
+        _waveOut.PlaybackStopped += (s, e) =>
+        {
+            _clock.Stop();
+            OnPlaybackStopped?.Invoke();
+        };
+        
+        _waveOut.Play();
+        _clock.Start();
+    }
 }

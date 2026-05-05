@@ -1,37 +1,21 @@
 # Build outputs
 bin/
 obj/
-publish/
 
 # Visual Studio
+.vs/
 *.user
 *.suo
-*.cache
-*.log
-
-# WiX build artifacts
-*.wixpdb
-*.wixobj
-
-# Installer output
-AudioStudioInstaller/bin/
-AudioStudioInstaller/Output/
-
-# Certificates and secrets
-*.pfx
-*.p12
-*.key
-
-# Logs and temp files
-*.log
-test.txt
-done.txt
-timestamp_now.txt
-msg_fix.txt
+*.suo*
+*.rsuser
 
 # IDE
-.vs/
-.vscode/
+.idea/
+*.DotSettings.user
 
-# TalkCody
-.talkcody/
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log

@@ -368,7 +368,8 @@
                             <TreeView Grid.Row="1" x:Name="FolderTree" Background="#FF252526" Foreground="White" 
                                       BorderThickness="0" FontSize="11" Padding="4" Margin="0,4,0,0"
                                       HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center"
-                                      SelectedItemChanged="FolderTree_SelectedItemChanged">
+                                      SelectedItemChanged="FolderTree_SelectedItemChanged"
+                                      MouseDoubleClick="FolderTree_MouseDoubleClick">
                                 <TreeView.ItemTemplate>
                                     <HierarchicalDataTemplate ItemsSource="{Binding Children}">
                                         <StackPanel Orientation="Horizontal">

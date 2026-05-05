@@ -12,6 +12,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using System.Windows.Documents;
 using Microsoft.Win32;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
@@ -60,6 +61,131 @@ namespace AudioStudio
         {
             _cache.Clear();
             _peakCache.Clear();
+        }
+    }
+    
+    // ========== Ghost Adorner для drag-drop как в FL Studio ==========
+    public class GhostAdorner : Adorner
+    {
+        private readonly string icon;
+        private readonly string fileName;
+        private Point _offset = new Point(15, -30);
+        
+        public GhostAdorner(UIElement adornedElement, string fileIcon, string fileNameText) 
+            : base(adornedElement)
+        {
+            icon = fileIcon;
+            fileName = fileNameText;
+            
+            // Создаём визуальный контент фантома (для Measure/Arrange)
+            var content = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(220, 60, 60, 80)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(120, 129, 255)),
+                BorderThickness = new Thickness(2),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 8, 16, 8),
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    Color = Colors.Black,
+                    Direction = 315,
+                    ShadowDepth = 8,
+                    BlurRadius = 16,
+                    Opacity = 0.6
+                }
+            };
+            
+            var stackPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal
+            };
+            
+            stackPanel.Children.Add(new TextBlock
+            {
+                Text = icon,
+                FontSize = 18,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 10, 0)
+            });
+            
+            stackPanel.Children.Add(new TextBlock
+            {
+                Text = fileName,
+                FontSize = 12,
+                Foreground = Brushes.White,
+                FontWeight = FontWeights.Medium,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            
+            content.Child = stackPanel;
+            content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            
+            IsHitTestVisible = false;
+        }
+        
+        protected override Size MeasureOverride(Size constraint)
+        {
+            return new Size(200, 40); // Размер ghost
+        }
+        
+        protected override Size ArrangeOverride(Size finalSize)
+        {
+            return finalSize;
+        }
+        
+        protected override void OnRender(DrawingContext drawingContext)
+        {
+            base.OnRender(drawingContext);
+            
+            // Отрисовываем контент в позиции курсора со смещением
+            var pos = Mouse.GetPosition(AdornedElement);
+            var renderPos = new Point(
+                pos.X + _offset.X,
+                pos.Y + _offset.Y
+            );
+            
+            double width = 180;
+            double height = 36;
+            
+            // Рисуем тень
+            var shadowBrush = new SolidColorBrush(Color.FromArgb(150, 0, 0, 0));
+            drawingContext.DrawRoundedRectangle(shadowBrush, null, 
+                new Rect(renderPos.X + 4, renderPos.Y + 4, width, height), 6, 6);
+            
+            // Рисуем фон
+            var bgBrush = new SolidColorBrush(Color.FromArgb(220, 40, 40, 70));
+            var borderPen = new Pen(new SolidColorBrush(Color.FromRgb(120, 129, 255)), 2);
+            drawingContext.DrawRoundedRectangle(bgBrush, borderPen, 
+                new Rect(renderPos.X, renderPos.Y, width, height), 6, 6);
+            
+            // Рисуем иконку и текст
+            var formattedIcon = new FormattedText(
+                icon,
+                System.Globalization.CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight,
+                new Typeface("Segoe UI Emoji"),
+                18,
+                Brushes.White,
+                VisualTreeHelper.GetDpi(this).PixelsPerDip);
+            
+            var formattedText = new FormattedText(
+                fileName,
+                System.Globalization.CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight,
+                new Typeface("Segoe UI"),
+                12,
+                Brushes.White,
+                VisualTreeHelper.GetDpi(this).PixelsPerDip);
+            
+            // Позиционируем текст внутри
+            double textY = renderPos.Y + (height - Math.Max(formattedIcon.Height, formattedText.Height)) / 2;
+            drawingContext.DrawText(formattedIcon, new Point(renderPos.X + 12, textY));
+            drawingContext.DrawText(formattedText, new Point(renderPos.X + 40, textY + 3));
+        }
+        
+        public void UpdatePosition(Point mousePos)
+        {
+            InvalidateVisual();
         }
     }
     
@@ -133,6 +259,9 @@ namespace AudioStudio
         public bool IsSelected { get; set; }
         public float Volume { get; set; } = 1.0f;
         public float Pan { get; set; } = 0.0f;
+        public bool IsDragOver { get; set; }
+        public bool IsDropTarget { get; set; } // Рамка - исчезает после drop
+        public bool IsDropHighlighted { get; set; } // Подсветка надписи - остаётся до клика
     }
 
     public class FileItem
@@ -229,6 +358,16 @@ namespace AudioStudio
         private bool _isUpdatingPlayhead = false;
         private readonly double _lastPlayheadUpdate = 0;
         
+        // ========== Ghost Adorner для drag-drop из TreeView ==========
+        private GhostAdorner? _ghostAdorner;
+        private AdornerLayer? _adornerLayer;
+        private FileItem? _draggedFileItem;
+        private Point _lastMousePos;
+        private const double DragThreshold = 5; // Минимальное расстояние для начала drag
+        
+        // Окно инструментов (FL Studio style - привязано к главному окну)
+        private InstrumentsWindow? _instrumentsWindow;
+        
         // Браузер файлов
         private string _rootPath = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
         private string _currentPath = "";
@@ -269,6 +408,9 @@ namespace AudioStudio
                 DrawTimeline();
                 UpdateTrackLabels();
                 InitializeBrowser();
+                
+                // Привязываем drag-drop обработчики к TreeView
+                SetupTreeViewDragDrop();
             };
             
             SizeChanged += (s, e) => 
@@ -464,6 +606,87 @@ namespace AudioStudio
             {
                 AddDownloadFolder();
             });
+        }
+        
+        // ========== TreeView Drag-Drop для FL Studio стиля ==========
+        private void SetupTreeViewDragDrop()
+        {
+            // Добавляем обработчики PreviewMouseLeftButtonDown и PreviewMouseMove
+            FolderTree.PreviewMouseLeftButtonDown += FolderTree_PreviewMouseLeftButtonDown;
+            FolderTree.PreviewMouseMove += FolderTree_PreviewMouseMove;
+        }
+        
+        private void FolderTree_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            _lastMousePos = e.GetPosition(FolderTree);
+            
+            // Проверяем, что кликнули на FileItem
+            var item = GetItemAtPoint(FolderTree, _lastMousePos);
+            if (item is FileItem fileItem)
+            {
+                _draggedFileItem = fileItem;
+            }
+            else
+            {
+                _draggedFileItem = null;
+            }
+        }
+        
+        private void FolderTree_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton == MouseButtonState.Pressed && _draggedFileItem != null)
+            {
+                var currentPos = e.GetPosition(FolderTree);
+                var diff = currentPos - _lastMousePos;
+                
+                // Проверяем, достаточно ли движения для начала drag
+                if (Math.Abs(diff.X) > DragThreshold || Math.Abs(diff.Y) > DragThreshold)
+                {
+                    // Показываем ghost и начинаем drag-drop
+                    ShowGhostAdorner(_draggedFileItem.Icon, _draggedFileItem.Name);
+                    
+                    var data = new DataObject(typeof(FileItem), _draggedFileItem);
+                    DragDrop.DoDragDrop(FolderTree, data, DragDropEffects.Copy);
+                    
+                    // После завершения drag скрываем ghost
+                    HideGhostAdorner();
+                    _draggedFileItem = null;
+                }
+            }
+        }
+        
+        private object? GetItemAtPoint(TreeView treeView, Point point)
+        {
+            var element = treeView.InputHitTest(point) as DependencyObject;
+            while (element != null)
+            {
+                if (element is TreeViewItem tvi)
+                {
+                    return tvi.DataContext;
+                }
+                element = VisualTreeHelper.GetParent(element);
+            }
+            return null;
+        }
+        
+        private void ShowGhostAdorner(string icon, string fileName)
+        {
+            // Получаем AdornerLayer из TracksBorder
+            _adornerLayer = AdornerLayer.GetAdornerLayer(TracksBorder);
+            if (_adornerLayer == null) return;
+            
+            // Создаём и добавляем ghost adorner
+            _ghostAdorner = new GhostAdorner(TracksBorder, icon, fileName);
+            _adornerLayer.Add(_ghostAdorner);
+        }
+        
+        private void HideGhostAdorner()
+        {
+            if (_ghostAdorner != null && _adornerLayer != null)
+            {
+                _adornerLayer.Remove(_ghostAdorner);
+                _ghostAdorner = null;
+            }
         }
         
         private void LoadDrives()
@@ -670,6 +893,9 @@ namespace AudioStudio
         
         private void FolderTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
         {
+            // При одинарном клике НЕ загружаем файл - только показываем информацию
+            // Загрузка происходит ТОЛЬКО при двойном клике или drag-drop
+            
             if (e.NewValue is FolderItem folder && !string.IsNullOrEmpty(folder.FullPath))
             {
                 _currentPath = folder.FullPath;
@@ -683,22 +909,42 @@ namespace AudioStudio
             }
             else if (e.NewValue is FileItem file)
             {
-                // Захватываем текущий трек СРАЗУ, не позже!
-                int targetTrack = selectedTrackIndex >= 0 ? selectedTrackIndex : 0;
-                if (targetTrack >= tracks.Count) targetTrack = 0;
+                // Показываем информацию о файле, но НЕ загружаем
+                int currentTrack = selectedTrackIndex >= 0 ? selectedTrackIndex : 0;
+                if (currentTrack >= tracks.Count) currentTrack = 0;
                 
-                if (tracks[targetTrack].Samples.Length > 0)
+                if (tracks[currentTrack].Samples.Length > 0)
                 {
-                    var currentFile = Path.GetFileName(tracks[targetTrack].SourceFile ?? "");
-                    StatusText.Text = $"Файл \"{file.Name}\" -> Трек {targetTrack + 1} (заменит \"{currentFile}\")";
+                    var currentFile = Path.GetFileName(tracks[currentTrack].SourceFile ?? "");
+                    StatusText.Text = $"Выбран: {file.Name} | Двойной клик или drag -> Трек {currentTrack + 1} (заменит \"{currentFile}\")";
                 }
                 else
                 {
-                    StatusText.Text = $"Файл \"{file.Name}\" -> Трек {targetTrack + 1}";
+                    StatusText.Text = $"Выбран: {file.Name} | Двойной клик или drag -> Трек {currentTrack + 1}";
                 }
-                
-                // Передаём захваченный индекс вместо использования selectedTrackIndex в async методе
-                LoadFileToTrackOnTrack(file.FullPath, targetTrack);
+            }
+        }
+        
+        // ========== Двойной клик для загрузки файла ==========
+        private void FolderTree_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            // Находим FileItem под курсором
+            var point = e.GetPosition(FolderTree);
+            var element = FolderTree.InputHitTest(point) as DependencyObject;
+            
+            while (element != null)
+            {
+                if (element is TreeViewItem tvi && tvi.DataContext is FileItem file)
+                {
+                    // Загружаем файл на выбранный трек
+                    int targetTrack = selectedTrackIndex >= 0 ? selectedTrackIndex : 0;
+                    if (targetTrack >= tracks.Count) targetTrack = 0;
+                    
+                    LoadFileToTrackOnTrack(file.FullPath, targetTrack);
+                    e.Handled = true;
+                    return;
+                }
+                element = VisualTreeHelper.GetParent(element);
             }
         }
         
@@ -1013,6 +1259,8 @@ namespace AudioStudio
             foreach (var track in tracks)
             {
                 bool isSelected = track.TrackIndex == selectedTrackIndex;
+                bool isDropTarget = track.IsDropTarget;     // Рамка - только во время drag
+                bool isDropHighlighted = track.IsDropHighlighted; // Подсветка надписи - остаётся после drop
                 
                 var trackRow = new Grid
                 {
@@ -1024,26 +1272,45 @@ namespace AudioStudio
                 trackRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
                 trackRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 
+                // Рамка - только во время drag, исчезает после drop
                 var labelPanel = new Border
                 {
-                    Background = new SolidColorBrush(Color.FromRgb(37, 37, 38)),
-                    BorderBrush = new SolidColorBrush(Color.FromRgb(62, 62, 66)),
-                    BorderThickness = new Thickness(0, 0, 1, 0),
+                    Background = isDropHighlighted ? 
+                        new SolidColorBrush(Color.FromArgb(100, 120, 129, 255)) : // Подсветка для highlighted
+                        new SolidColorBrush(Color.FromRgb(37, 37, 38)),
+                    BorderBrush = isDropTarget ? 
+                        new SolidColorBrush(Color.FromRgb(120, 129, 255)) :  // Рамка - только во время drag
+                        new SolidColorBrush(Color.FromRgb(62, 62, 66)),
+                    BorderThickness = isDropTarget ? new Thickness(3) : new Thickness(0, 0, 1, 0),
                     Cursor = Cursors.Hand,
                     Tag = track.TrackIndex,
-                    AllowDrop = true // Разрешаем drop на этот трек (FL Studio стиль)
+                    AllowDrop = true
                 };
                 
-                // Drag-drop обработчики для конкретного трека (FL Studio стиль)
-                // NOTE: Для внешних файлов обрабатываем на родительском TracksBorder
-                // Этот обработчик оставлен для будущего использования (drag между треками)
-                // labelPanel.DragEnter += Track_DragEnter;
-                // labelPanel.DragLeave += Track_DragLeave;
-                // labelPanel.DragOver += Track_DragOver;
-                // labelPanel.Drop += Track_Drop;
+                // FL Studio style: drag обработчики для КАЖДОГО labelPanel
+                labelPanel.DragEnter += LabelPanel_DragEnter;
+                labelPanel.DragLeave += LabelPanel_DragLeave;
+                labelPanel.DragOver += LabelPanel_DragOver;
+                labelPanel.Drop += LabelPanel_Drop;
                 
+                var waveformPanel = new Border
+                {
+                    Background = isDropHighlighted ? 
+                        new SolidColorBrush(Color.FromArgb(100, 60, 90, 160)) :
+                        (isSelected ? 
+                            new SolidColorBrush(Color.FromArgb(255, 35, 35, 40)) :
+                            new SolidColorBrush(Color.FromRgb(30, 30, 35))),
+                    BorderBrush = isDropTarget ? 
+                        new SolidColorBrush(Color.FromRgb(120, 129, 255)) :
+                        new SolidColorBrush(Color.FromRgb(62, 62, 66)),
+                    BorderThickness = isDropTarget ? new Thickness(2) : new Thickness(0),
+                    Tag = track.TrackIndex,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    ClipToBounds = true
+                };
+                
+                // ======= ЛЕВАЯ ПАНЕЛЬ С НАЗВАНИЕМ ТРЕКА =======
                 var labelGrid = new Grid();
-                
                 labelGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 labelGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 labelGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -1053,24 +1320,28 @@ namespace AudioStudio
                 var trackNumber = new TextBlock
                 {
                     Text = $"Track {track.TrackIndex + 1}",
-                    Foreground = isSelected ? 
-                        new SolidColorBrush(Color.FromRgb(120, 129, 255)) : 
-                        new SolidColorBrush(Color.FromRgb(150, 150, 155)),
+                    Foreground = isDropHighlighted ? 
+                        new SolidColorBrush(Color.FromRgb(200, 209, 255)) : // Яркий после drop
+                        (isSelected ? 
+                            new SolidColorBrush(Color.FromRgb(120, 129, 255)) : 
+                            new SolidColorBrush(Color.FromRgb(150, 150, 155))),
                     FontSize = 14,
-                    FontWeight = FontWeights.Bold,
+                    FontWeight = isDropHighlighted ? FontWeights.Bold : (isSelected ? FontWeights.Bold : FontWeights.Normal),
                     HorizontalAlignment = HorizontalAlignment.Left,
                     VerticalAlignment = VerticalAlignment.Top,
                     Margin = new Thickness(8, 5, 0, 0)
                 };
                 
-                var fileName = new TextBlock
+                var fileNameBlock = new TextBlock
                 {
                     Text = track.Samples.Length > 0 ? 
                         (Path.GetFileName(track.SourceFile) ?? "Файл") : 
                         "Пусто",
-                    Foreground = isSelected ? 
-                        new SolidColorBrush(Color.FromRgb(180, 180, 185)) : 
-                        new SolidColorBrush(Color.FromRgb(120, 120, 125)),
+                    Foreground = isDropHighlighted ? 
+                        new SolidColorBrush(Color.FromRgb(220, 220, 230)) :
+                        (isSelected ? 
+                            new SolidColorBrush(Color.FromRgb(180, 180, 185)) : 
+                            new SolidColorBrush(Color.FromRgb(120, 120, 125))),
                     FontSize = 10,
                     FontWeight = FontWeights.Medium,
                     HorizontalAlignment = HorizontalAlignment.Left,
@@ -1086,7 +1357,9 @@ namespace AudioStudio
                     Height = 40,
                     FontSize = 22,
                     Background = Brushes.Transparent,
-                    Foreground = new SolidColorBrush(Color.FromRgb(150, 150, 155)),
+                    Foreground = isDropHighlighted ? 
+                        new SolidColorBrush(Color.FromRgb(200, 209, 255)) :
+                        new SolidColorBrush(Color.FromRgb(150, 150, 155)),
                     BorderThickness = new Thickness(0),
                     Cursor = Cursors.Hand,
                     HorizontalAlignment = HorizontalAlignment.Right,
@@ -1096,38 +1369,30 @@ namespace AudioStudio
                 };
                 playButton.Click += (s, e) => 
                 {
+                    // При клике сбрасываем drop-highlighted и выбираем трек
+                    foreach (var t in tracks) t.IsDropHighlighted = false;
+                    foreach (var t in tracks) t.IsDropTarget = false;
                     selectedTrackIndex = track.TrackIndex;
                     UpdateTrackLabels();
                 };
                 
                 Grid.SetRow(trackNumber, 0);
-                Grid.SetRow(fileName, 1);
+                Grid.SetRow(fileNameBlock, 1);
                 Grid.SetRow(playButton, 2);
                 Grid.SetColumn(playButton, 1);
                 
                 labelGrid.Children.Add(trackNumber);
-                labelGrid.Children.Add(fileName);
+                labelGrid.Children.Add(fileNameBlock);
                 labelGrid.Children.Add(playButton);
                 
                 labelPanel.Child = labelGrid;
                 labelPanel.MouseLeftButtonDown += (s, args) =>
                 {
+                    // При клике сбрасываем drop-highlighted и выбираем трек
+                    foreach (var t in tracks) { t.IsDropHighlighted = false; t.IsDropTarget = false; }
                     selectedTrackIndex = (int)((Border)s).Tag;
                     UpdateTrackLabels();
-                };
-                
-                Grid.SetColumn(labelPanel, 0);
-                
-                var waveformPanel = new Border
-                {
-                    Background = isSelected ? 
-                        new SolidColorBrush(Color.FromArgb(255, 35, 35, 40)) :
-                        new SolidColorBrush(Color.FromRgb(30, 30, 35)),
-                    BorderBrush = new SolidColorBrush(Color.FromRgb(62, 62, 66)),
-                    BorderThickness = new Thickness(0),
-                    Tag = track.TrackIndex,
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    ClipToBounds = true
+                    UpdateInstrumentsWindow(); // Обновляем окно инструментов
                 };
                 
                 var waveformCanvas = new Canvas
@@ -1242,21 +1507,27 @@ namespace AudioStudio
         
         private void DrawWaveformInCanvas(Canvas canvas, AudioClip clip, double width)
         {
-            if (clip.Samples.Length == 0) return;
+            if (clip.Samples == null || clip.Samples.Length == 0) return;
+            
+            // Ограничиваем ширину waveform для производительности (макс 5000 пикс)
+            double displayWidth = Math.Min(Math.Max(1, width), 5000);
             
             // Оптимизация: используем кэшированные пики если есть
             float[] peaks;
             if (_waveformPeaks.TryGetValue(clip.TrackIndex, out peaks))
             {
-                DrawWaveformFromPeaks(canvas, peaks, width, clip.TrackIndex);
+                DrawWaveformFromPeaks(canvas, peaks, displayWidth, clip.TrackIndex);
             }
             else
             {
-                // Вычисляем пики и кэшируем
-                // Количество пиков = ширина в пикселях для точного соответствия
-                peaks = ComputePeaks(clip.Samples, (int)width);
+                // Вычисляем пики с ограниченным количеством (макс 2000)
+                int peakCount = (int)displayWidth;
+                if (peakCount > 2000) peakCount = 2000;
+                if (peakCount < 100) peakCount = 100;
+                
+                peaks = ComputePeaks(clip.Samples, peakCount);
                 _waveformPeaks[clip.TrackIndex] = peaks;
-                DrawWaveformFromPeaks(canvas, peaks, width, clip.TrackIndex);
+                DrawWaveformFromPeaks(canvas, peaks, displayWidth, clip.TrackIndex);
             }
         }
         
@@ -1265,8 +1536,12 @@ namespace AudioStudio
         {
             canvas.Children.Clear();
             
-            int w = Math.Max(1, (int)width);
+            // Ограничиваем ширину для производительности
+            int maxWidth = 5000;
+            int w = Math.Min(Math.Max(1, (int)width), maxWidth);
             int h = Math.Max(1, TrackHeight - 4);
+            
+            if (peaks == null || peaks.Length == 0 || w <= 0) return;
             
             try
             {
@@ -1293,13 +1568,14 @@ namespace AudioStudio
                     }
                     
                     // Рисуем waveform
-                    double step = (double)peaks.Length / w;
+                    double step = w > 0 ? (double)peaks.Length / w : 1.0;
                     int midY = h / 2;
                     
                     for (int x = 0; x < w; x++)
                     {
-                        int peakIdx = Math.Min((int)(x * step), peaks.Length - 1);
+                        int peakIdx = (int)(x * step);
                         if (peakIdx < 0) peakIdx = 0;
+                        if (peakIdx >= peaks.Length) peakIdx = peaks.Length - 1;
                         
                         float peak = peaks[peakIdx];
                         int amplitude = Math.Min(h / 2, (int)(peak * h / 2));
@@ -1543,7 +1819,7 @@ namespace AudioStudio
             {
                 // Проверка памяти перед загрузкой
                 long memUsed = GC.GetTotalMemory(false);
-                if (memUsed > 500_000_000) // > 500MB
+                if (memUsed > 2_000_000_000) // > 2GB
                 {
                     Dispatcher.Invoke(() =>
                     {
@@ -1555,7 +1831,7 @@ namespace AudioStudio
                 Dispatcher.Invoke(() =>
                 {
                     SaveUndoState();
-                    StatusText.Text = "Загрузка...";
+                    StatusText.Text = "Чтение файла...";
                 });
                 
                 float[] samples;
@@ -1568,33 +1844,71 @@ namespace AudioStudio
                     sampleRate = reader.WaveFormat.SampleRate;
                     channels = reader.WaveFormat.Channels;
                     
-                    // Ограничение размера файла (100MB)
-                    if (reader.Length > 100_000_000)
+                    // Получаем реальную длительность
+                    var duration = reader.TotalTime;
+                    
+                    // Проверяем длительность (макс 2 часа)
+                    if (duration.TotalSeconds > 7200)
                     {
                         Dispatcher.Invoke(() =>
                         {
-                            StatusText.Text = "Файл слишком большой (макс 100MB)";
+                            StatusText.Text = "Файл слишком длинный (макс 2 часа)";
                         });
                         return;
                     }
                     
-                    // Оптимизация: выделяем память сразу
-                    var totalSamples = (int)(reader.Length / sizeof(float));
-                    samples = new float[totalSamples];
+                    // Для MP3/AAC нельзя предсказать размер - используем List<float>
+                    // Начальная ёмкость = примерный размер
+                    int estimatedSize = (int)(duration.TotalSeconds * sampleRate * channels);
+                    var allSamples = new List<float>(estimatedSize);
                     
-                    var buffer = new float[8192]; // Увеличенный буфер
-                    int offset = 0;
+                    var buffer = new float[131072]; // 128K буфер
                     int read;
+                    long totalRead = 0;
+                    
+                    Dispatcher.Invoke(() =>
+                    {
+                        StatusText.Text = "Декодирование...";
+                    });
                     
                     while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
                     {
-                        Array.Copy(buffer, 0, samples, offset, read);
-                        offset += read;
+                        // Добавляем прочитанные сэмплы
+                        for (int i = 0; i < read; i++)
+                        {
+                            allSamples.Add(buffer[i]);
+                        }
+                        totalRead += read;
+                        
+                        // Обновляем прогресс каждые ~5 секунд
+                        if (totalRead % (sampleRate * channels * 5) < buffer.Length)
+                        {
+                            double secondsRead = totalRead / (double)(sampleRate * channels);
+                            int percent = duration.TotalSeconds > 0 
+                                ? (int)(secondsRead * 100 / duration.TotalSeconds) 
+                                : 0;
+                            if (percent > 99) percent = 99;
+                            Dispatcher.Invoke(() =>
+                            {
+                                StatusText.Text = $"Декодирование... {percent}% ({secondsRead:F0}/{duration.TotalSeconds:F0}с)";
+                            });
+                        }
                     }
+                    
+                    samples = allSamples.ToArray();
+                    allSamples.Clear(); // Освобождаем память List
                 }
                 
-                // Вычисляем пики для waveform (в фоне)
-                var peaks = ComputePeaks(samples, 1000);
+                Dispatcher.Invoke(() =>
+                {
+                    StatusText.Text = "Расчёт waveform...";
+                });
+                
+                // Для больших файлов уменьшаем количество пиков
+                int peakCount = samples.Length > 10_000_000 ? 500 : (samples.Length > 5_000_000 ? 750 : 1000);
+                
+                // Вычисляем пики для waveform
+                var peaks = ComputePeaks(samples, peakCount);
                 
                 // Обновляем UI в главном потоке
                 Dispatcher.Invoke(() =>
@@ -1634,7 +1948,11 @@ namespace AudioStudio
         // Оптимизация: вычисление пиков для waveform
         private float[] ComputePeaks(float[] samples, int peakCount)
         {
-            if (samples.Length == 0) return Array.Empty<float>();
+            if (samples == null || samples.Length == 0 || peakCount <= 0) 
+                return Array.Empty<float>();
+            
+            // Ограничиваем peakCount для больших файлов (макс 2000 пиков)
+            if (peakCount > 2000) peakCount = 2000;
             
             var peaks = new float[peakCount];
             int samplesPerPeak = Math.Max(1, samples.Length / peakCount);
@@ -1655,7 +1973,7 @@ namespace AudioStudio
             
             return peaks;
         }
-
+        
         private void ConvertToWav(string inputPath, string outputPath)
         {
             using var reader = new AudioFileReader(inputPath);
@@ -2197,41 +2515,191 @@ namespace AudioStudio
                     return;
                 }
                 
-                var instrumentsWindow = new InstrumentsWindow();
-                if (this != null)
-                    instrumentsWindow.Owner = this;
-                instrumentsWindow.LoadTrack(track);
-                instrumentsWindow.ShowDialog();
-                
-                if (instrumentsWindow.ChangesApplied)
+                // FL Studio style: если окно уже открыто, просто активируем его
+                if (_instrumentsWindow != null && _instrumentsWindow.IsVisible)
                 {
-                    ApplyInstrumentsChanges(track, instrumentsWindow);
+                    _instrumentsWindow.Activate();
+                    _instrumentsWindow.LoadTrack(track);
+                    return;
                 }
+                
+                // Создаём новое окно (не модальное)
+                _instrumentsWindow = new InstrumentsWindow();
+                _instrumentsWindow.Owner = this;
+                _instrumentsWindow.LoadTrack(track);
+                
+                // Подписка на событие применения эффектов
+                _instrumentsWindow.ApplyRequested += () =>
+                {
+                    Dispatcher.Invoke(() => ApplyEffectsFromInstrumentsWindow());
+                };
+                
+                // Подписка на Preview
+                _instrumentsWindow.PreviewRequested += () =>
+                {
+                    Dispatcher.Invoke(() => PreviewTrackWithEffects());
+                };
+                
+                // Обработчик закрытия
+                _instrumentsWindow.Closed += (s, args) =>
+                {
+                    _instrumentsWindow = null;
+                };
+                
+                _instrumentsWindow.Show(); // Не ShowDialog - можно работать с главным окном
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error: " + ex.Message + "\n" + ex.StackTrace, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Error: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+        
+        // Обновление InstrumentsWindow при смене трека
+        public void UpdateInstrumentsWindow()
+        {
+            if (_instrumentsWindow == null || !_instrumentsWindow.IsVisible) return;
+            
+            if (selectedTrackIndex >= 0 && selectedTrackIndex < tracks.Count)
+            {
+                var track = tracks[selectedTrackIndex];
+                if (track?.Samples?.Length > 0)
+                    _instrumentsWindow.LoadTrack(track);
+            }
+        }
+        
+        // Проверка доступности NativeAudio
+        private static bool _nativeAudioAvailable = false;
+        private static bool CheckNativeAudio()
+        {
+            try
+            {
+                // Пробуем создать пустой effect chain
+                var fx = NativeAudio.CreateEffectChain(44100, 2);
+                if (fx != IntPtr.Zero)
+                {
+                    NativeAudio.DeleteEffectChain(fx);
+                    _nativeAudioAvailable = true;
+                    return true;
+                }
+            }
+            catch
+            {
+                _nativeAudioAvailable = false;
+            }
+            return false;
+        }
+        
+        // Применить эффекты напрямую
+        public void ApplyEffectsFromInstrumentsWindow()
+        {
+            if (_instrumentsWindow == null || !_instrumentsWindow.IsVisible) return;
+            if (selectedTrackIndex < 0 || selectedTrackIndex >= tracks.Count) return;
+            
+            var track = tracks[selectedTrackIndex];
+            if (track?.Samples == null || track.Samples.Length == 0) return;
+            
+            // Проверяем доступность NativeAudio
+            if (!_nativeAudioAvailable)
+            {
+                if (!CheckNativeAudio())
+                {
+                    StatusText.Text = "⚠ Effects unavailable (DLL not found)";
+                    return;
+                }
+            }
+            
+            try
+            {
+                ApplyInstrumentsChanges(track, _instrumentsWindow);
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = "⚠ Effect error: " + ex.Message;
+            }
+        }
+        
+        // Preview трека с эффектами
+        public void PreviewTrackWithEffects()
+        {
+            if (selectedTrackIndex < 0 || selectedTrackIndex >= tracks.Count) return;
+            
+            var track = tracks[selectedTrackIndex];
+            if (track?.Samples == null || track.Samples.Length == 0) return;
+            
+            // Создаём копию сэмплов для preview
+            float[] previewSamples = (float[])track.Samples.Clone();
+            
+            // Проверяем доступность NativeAudio
+            if (!_nativeAudioAvailable && !CheckNativeAudio())
+            {
+                // Preview без эффектов
+                _audio.PlayPreview(previewSamples, track.SampleRate, track.Channels);
+                isPlaying = true;
+                BtnPlay.Content = "⏸";
+                playTimer.Start();
+                StatusText.Text = "▶ Preview (no effects - DLL missing)";
+                return;
+            }
+            
+            try
+            {
+                // Применяем эффекты к копии
+                IntPtr fx = NativeAudio.CreateEffectChain(track.SampleRate, track.Channels);
+                
+                if (_instrumentsWindow != null)
+                {
+                    NativeAudio.SetLowPass(fx, _instrumentsWindow.LowPassEnabled, _instrumentsWindow.LowPassCutoff);
+                    NativeAudio.SetHighPass(fx, _instrumentsWindow.HighPassEnabled, _instrumentsWindow.HighPassCutoff);
+                    NativeAudio.SetGain(fx, _instrumentsWindow.GainEnabled, _instrumentsWindow.GainDb);
+                    NativeAudio.SetEcho(fx, _instrumentsWindow.EchoEnabled, _instrumentsWindow.EchoDelay,
+                        _instrumentsWindow.EchoFeedback / 100f, _instrumentsWindow.EchoMix / 100f);
+                    NativeAudio.SetReverb(fx, _instrumentsWindow.ReverbEnabled,
+                        _instrumentsWindow.ReverbWet / 100f, _instrumentsWindow.ReverbRoom / 100f);
+                }
+                
+                NativeAudio.ProcessBuffer(fx, previewSamples, previewSamples.Length);
+                NativeAudio.DeleteEffectChain(fx);
+                
+                StatusText.Text = "▶ Preview: " + track.Name;
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = "Preview error: " + ex.Message;
+            }
+            
+            // Воспроизводим
+            _audio.PlayPreview(previewSamples, track.SampleRate, track.Channels);
+            isPlaying = true;
+            BtnPlay.Content = "⏸";
+            playTimer.Start();
         }
         
         private void ApplyInstrumentsChanges(AudioClip track, InstrumentsWindow window)
         {
-            IntPtr fx = NativeAudio.CreateEffectChain(track.SampleRate, track.Channels);
+            try
+            {
+                IntPtr fx = NativeAudio.CreateEffectChain(track.SampleRate, track.Channels);
 
-            NativeAudio.SetLowPass(fx, window.LowPassEnabled, window.LowPassCutoff);
-            NativeAudio.SetHighPass(fx, window.HighPassEnabled, window.HighPassCutoff);
-            NativeAudio.SetGain(fx, window.GainEnabled, window.GainDb);
-            NativeAudio.SetEcho(fx, window.EchoEnabled, window.EchoDelay,
-                window.EchoFeedback / 100f, window.EchoMix / 100f);
-            NativeAudio.SetReverb(fx, window.ReverbEnabled,
-                window.ReverbWet / 100f, window.ReverbRoom / 100f);
+                NativeAudio.SetLowPass(fx, window.LowPassEnabled, window.LowPassCutoff);
+                NativeAudio.SetHighPass(fx, window.HighPassEnabled, window.HighPassCutoff);
+                NativeAudio.SetGain(fx, window.GainEnabled, window.GainDb);
+                NativeAudio.SetEcho(fx, window.EchoEnabled, window.EchoDelay,
+                    window.EchoFeedback / 100f, window.EchoMix / 100f);
+                NativeAudio.SetReverb(fx, window.ReverbEnabled,
+                    window.ReverbWet / 100f, window.ReverbRoom / 100f);
 
-            NativeAudio.ProcessBuffer(fx, track.Samples, track.Samples.Length);
+                NativeAudio.ProcessBuffer(fx, track.Samples, track.Samples.Length);
 
-            NativeAudio.DeleteEffectChain(fx);
+                NativeAudio.DeleteEffectChain(fx);
 
-            RebuildMixer();
-            DrawTimeline();
+                RebuildMixer();
+                DrawTimeline();
+                StatusText.Text = "Effects applied to: " + track.Name;
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = "⚠ Effect error: " + ex.Message;
+            }
         }
         
         private void Reset_Click(object sender, RoutedEventArgs e)
@@ -2248,7 +2716,7 @@ namespace AudioStudio
             return $"{min:D2}:{sec:D2}.{ms:D2}";
         }
         
-        // ========== Drag & Drop Support ==========
+        // ========== Drag & Drop Support (FL Studio Style) ==========
         private int _dragHoveredTrackIndex = -1;
         private Line? _dropIndicatorLine = null;
         private int _trackIndexBeforeDrag = -1; // Запоминаем выбор ДО drag
@@ -2256,7 +2724,7 @@ namespace AudioStudio
         
         private void OnDragEnter(object sender, DragEventArgs e)
         {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            if (e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent(typeof(FileItem)))
             {
                 e.Effects = DragDropEffects.Copy;
                 
@@ -2277,13 +2745,13 @@ namespace AudioStudio
         {
             ClearDropIndicators();
             _isDraggingFile = false;
+            HideTrackHighlight();
             StatusText.Text = "Готов к работе";
         }
         
         // Preview обработчики - перехватывают drag дочерних элементов
         private void OnPreviewDragEnter(object sender, DragEventArgs e)
         {
-            // Вызываем основной обработчик
             OnDragEnter(sender, e);
         }
         
@@ -2294,41 +2762,52 @@ namespace AudioStudio
         
         private void OnPreviewDragOver(object sender, DragEventArgs e)
         {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
-                e.Effects = DragDropEffects.Copy;
-                
-                // Используем оригинальныйsender для позиции (Border)
-                var point = e.GetPosition(TracksPanel);
-                int hoveredTrack = (int)(point.Y / (TrackHeight + TrackMargin));
-                
-                if (hoveredTrack < 0) hoveredTrack = 0;
-                if (hoveredTrack >= tracks.Count) hoveredTrack = tracks.Count - 1;
-                
-                if (hoveredTrack != _dragHoveredTrackIndex)
-                {
-                    _dragHoveredTrackIndex = hoveredTrack;
-                    UpdateDropIndicator();
-                }
-            }
-            else
-            {
-                e.Effects = DragDropEffects.None;
-            }
-            e.Handled = true;
+            UpdateDragOverState(e);
         }
         
         private void OnDragOver(object sender, DragEventArgs e)
         {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            UpdateDragOverState(e);
+        }
+        
+        private void UpdateDragOverState(DragEventArgs e)
+        {
+            // Проверяем и внешние файлы, и внутренние FileItem
+            bool hasFileDrop = e.Data.GetDataPresent(DataFormats.FileDrop);
+            bool hasFileItem = e.Data.GetDataPresent(typeof(FileItem));
+            
+            if (hasFileDrop || hasFileItem)
             {
                 e.Effects = DragDropEffects.Copy;
                 
-                // Получаем позицию относительно TracksPanel (где лежат треки)
-                var point = e.GetPosition(TracksPanel);
+                // Используем HitTest для точного определения трека под курсором
+                var mousePos = e.GetPosition(TracksScroller);
+                var hitResult = VisualTreeHelper.HitTest(TracksScroller, mousePos);
                 
-                // Вычисляем какой трек под курсором
-                int hoveredTrack = (int)(point.Y / (TrackHeight + TrackMargin));
+                int hoveredTrack = -1;
+                
+                if (hitResult != null)
+                {
+                    // Ищем ближайший Border с Tag = trackIndex
+                    var element = hitResult.VisualHit as DependencyObject;
+                    while (element != null)
+                    {
+                        if (element is Border border && border.Tag is int trackIdx)
+                        {
+                            hoveredTrack = trackIdx;
+                            break;
+                        }
+                        element = VisualTreeHelper.GetParent(element);
+                    }
+                }
+                
+                // Fallback: если HitTest не нашёл, используем расчёт по Y
+                if (hoveredTrack < 0)
+                {
+                    double scrollOffset = TracksScroller.VerticalOffset;
+                    double adjustedY = mousePos.Y + scrollOffset;
+                    hoveredTrack = (int)(adjustedY / (TrackHeight + TrackMargin));
+                }
                 
                 // Ограничиваем диапазон
                 if (hoveredTrack < 0) hoveredTrack = 0;
@@ -2337,14 +2816,48 @@ namespace AudioStudio
                 if (hoveredTrack != _dragHoveredTrackIndex)
                 {
                     _dragHoveredTrackIndex = hoveredTrack;
-                    UpdateDropIndicator();
+                    HighlightTrack(hoveredTrack); // FL Studio: подсветка трека
                 }
+                
+                // Обновляем ghost позицию если он есть
+                _ghostAdorner?.UpdatePosition(e.GetPosition(TracksBorder));
             }
             else
             {
                 e.Effects = DragDropEffects.None;
             }
             e.Handled = true;
+        }
+        
+        // FL Studio Style: подсветка трека при наведении
+        private void HighlightTrack(int trackIndex)
+        {
+            HideTrackHighlight();
+            
+            if (trackIndex < 0 || trackIndex >= tracks.Count) return;
+            
+            // Устанавливаем свойство IsDragOver на модели
+            tracks[trackIndex].IsDragOver = true;
+            
+            // Перерисовываем визуально
+            UpdateTrackLabels();
+            
+            // Обновляем статус
+            var track = tracks[trackIndex];
+            if (track.Samples.Length > 0)
+                StatusText.Text = $"Трек {trackIndex + 1}: заменит \"{Path.GetFileName(track.SourceFile)}\"";
+            else
+                StatusText.Text = $"Трек {trackIndex + 1}: пустой — загрузить";
+        }
+        
+        private void HideTrackHighlight()
+        {
+            // Сбрасываем все IsDragOver
+            foreach (var track in tracks)
+            {
+                track.IsDragOver = false;
+            }
+            UpdateTrackLabels();
         }
         
         private void UpdateDropIndicator()
@@ -2368,8 +2881,7 @@ namespace AudioStudio
             };
             TracksContainer.Children.Add(_dropIndicatorLine);
             
-            // ВИЗУАЛЬНО показываем выбранный трек во время drag (подсветка)
-            selectedTrackIndex = _dragHoveredTrackIndex;
+            // Не меняем selectedTrackIndex! Подсветка делается через IsDragOver
             UpdateTrackLabels();
             
             if (tracks[_dragHoveredTrackIndex].Samples.Length > 0)
@@ -2396,6 +2908,10 @@ namespace AudioStudio
             {
                 selectedTrackIndex = clickedTrack;
                 UpdateTrackLabels();
+                
+                // Обновляем окно инструментов если открыто
+                UpdateInstrumentsWindow();
+                
                 if (tracks[clickedTrack].Samples.Length > 0)
                 {
                     var fileName = Path.GetFileName(tracks[clickedTrack].SourceFile ?? "");
@@ -2410,56 +2926,110 @@ namespace AudioStudio
         
         private void OnDrop(object sender, DragEventArgs e)
         {
-            ClearDropIndicators();
+            // Сохраняем индекс трека ДО очистки!
+            int targetTrack = _dragHoveredTrackIndex;
             
+            // Если _dragHoveredTrackIndex невалиден, вычисляем из позиции курсора
+            if (targetTrack < 0 || targetTrack >= tracks.Count)
+            {
+                // Вычисляем трек из текущей позиции мыши
+                var pos = e.GetPosition(TracksBorder);
+                double scrollOffset = TracksScroller.VerticalOffset;
+                double adjustedY = pos.Y + scrollOffset;
+                targetTrack = (int)(adjustedY / (TrackHeight + TrackMargin));
+                
+                // Ограничиваем
+                if (targetTrack < 0) targetTrack = 0;
+                if (targetTrack >= tracks.Count) targetTrack = tracks.Count - 1;
+            }
+            
+            // Запоминаем какой трек был выбран ДО drag для восстановления
+            int previousTrack = _trackIndexBeforeDrag >= 0 ? _trackIndexBeforeDrag : 0;
+            
+            // Очищаем индикаторы ПОСЛЕ получения targetTrack
+            ClearDropIndicators();
+            HideTrackHighlight();
+            HideGhostAdorner();
+            
+            // Обработка внешних файлов (drag из проводника)
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 var files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                int targetTrack = _dragHoveredTrackIndex >= 0 ? _dragHoveredTrackIndex : (_trackIndexBeforeDrag >= 0 ? _trackIndexBeforeDrag : 0);
-                if (targetTrack < 0) targetTrack = 0;
-                if (targetTrack >= tracks.Count) targetTrack = 0;
-                
                 foreach (var file in files)
                 {
                     var ext = Path.GetExtension(file).ToLower();
                     if (AudioExtensions.Contains(ext))
                         LoadFileToTrackOnTrack(file, targetTrack);
                 }
-                
-                // ВОССТАНАВЛИВАЕМ выбор который был ДО drag
-                selectedTrackIndex = _trackIndexBeforeDrag >= 0 ? _trackIndexBeforeDrag : 0;
-                UpdateTrackLabels();
-                
                 StatusText.Text = $"Загружено в трек {targetTrack + 1}";
             }
+            // Обработка FileItem из TreeView (FL Studio ghost drag)
+            else if (e.Data.GetDataPresent(typeof(FileItem)))
+            {
+                var fileItem = (FileItem)e.Data.GetData(typeof(FileItem));
+                LoadFileToTrackOnTrack(fileItem.FullPath, targetTrack);
+                StatusText.Text = $"Загружено: {fileItem.Name} -> Трек {targetTrack + 1}";
+            }
+            
+            // ВОССТАНАВЛИВАЕМ выбор который был ДО drag
+            selectedTrackIndex = previousTrack;
+            UpdateTrackLabels();
             
             _isDraggingFile = false;
+            _draggedFileItem = null;
         }
         
         // ========== FL Studio Style Track Drag-Drop ==========
-        // Drag-drop на КОНКРЕТНЫЙ трек (как в FL Studio)
+        // Drag-drop на КАЖДЫЙ labelPanel конкретного трека
         
-        private void Track_DragEnter(object sender, DragEventArgs e)
+        // Вспомогательный метод для поиска trackIndex из любого sender
+        private int GetTrackIndexFromSender(object sender)
         {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            if (sender == null) return -1;
+            
+            var element = sender as DependencyObject;
+            if (element == null) return -1;
+            
+            // Сначала проверяем Tag у самого sender
+            if (sender is FrameworkElement fe && fe.Tag is int directTag)
+                return directTag;
+            
+            // Иначе ищем вверх по дереву Border с Tag
+            while (element != null)
+            {
+                if (element is Border border && border.Tag is int trackIdx)
+                    return trackIdx;
+                element = VisualTreeHelper.GetParent(element);
+            }
+            
+            return -1;
+        }
+        
+        private void LabelPanel_DragEnter(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent(typeof(FileItem)))
             {
                 e.Effects = DragDropEffects.Copy;
                 e.Handled = true;
                 
-                if (sender is Border border && border.Tag is int trackIndex)
+                int trackIndex = GetTrackIndexFromSender(sender);
+                
+                if (trackIndex >= 0 && trackIndex < tracks.Count)
                 {
-                    // Визуальная подсветка трека (FL Studio стиль)
-                    border.BorderBrush = new SolidColorBrush(Color.FromRgb(120, 129, 255)); // Фиолетовая рамка
-                    border.BorderThickness = new Thickness(3);
+                    // Сбрасываем все и устанавливаем для этого трека
+                    foreach (var t in tracks) { t.IsDropTarget = false; t.IsDropHighlighted = false; }
+                    tracks[trackIndex].IsDropTarget = true;
+                    tracks[trackIndex].IsDropHighlighted = true;
                     
-                    // Запоминаем что drag вошёл
+                    UpdateTrackLabels();
+                    
                     _dragHoveredTrackIndex = trackIndex;
                     _trackIndexBeforeDrag = selectedTrackIndex;
                     
                     if (tracks[trackIndex].Samples.Length > 0)
-                        StatusText.Text = $"Трек {trackIndex + 1}: заменит файл";
+                        StatusText.Text = $"Трек {trackIndex + 1}: заменит \"{Path.GetFileName(tracks[trackIndex].SourceFile)}\"";
                     else
-                        StatusText.Text = $"Трек {trackIndex + 1}: пустой";
+                        StatusText.Text = $"Трек {trackIndex + 1}: пустой — загрузить";
                 }
             }
             else
@@ -2468,24 +3038,37 @@ namespace AudioStudio
             }
         }
         
-        private void Track_DragLeave(object sender, DragEventArgs e)
+        private void LabelPanel_DragLeave(object sender, DragEventArgs e)
         {
+            // НЕ сбрасываем! Рамка и подсветка остаются, будут обновлены в DragOver другого трека
             e.Handled = true;
-            
-            if (sender is Border border)
-            {
-                // Убираем подсветку
-                border.BorderBrush = new SolidColorBrush(Color.FromRgb(62, 62, 66)); // Обычная рамка
-                border.BorderThickness = new Thickness(0, 0, 1, 0);
-            }
         }
         
-        private void Track_DragOver(object sender, DragEventArgs e)
+        private void LabelPanel_DragOver(object sender, DragEventArgs e)
         {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            if (e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent(typeof(FileItem)))
             {
                 e.Effects = DragDropEffects.Copy;
                 e.Handled = true;
+                
+                int trackIndex = GetTrackIndexFromSender(sender);
+                if (trackIndex >= 0 && trackIndex < tracks.Count)
+                {
+                    // Проверяем - изменился ли трек под курсором
+                    int? currentDropTarget = tracks.FirstOrDefault(t => t.IsDropTarget)?.TrackIndex;
+                    
+                    if (currentDropTarget == null || currentDropTarget != trackIndex)
+                    {
+                        // Сбрасываем все IsDropTarget и IsDropHighlighted
+                        foreach (var t in tracks) { t.IsDropTarget = false; t.IsDropHighlighted = false; }
+                        // Устанавливаем для нового трека
+                        tracks[trackIndex].IsDropTarget = true;
+                        tracks[trackIndex].IsDropHighlighted = true;
+                        
+                        _dragHoveredTrackIndex = trackIndex;
+                        UpdateTrackLabels();
+                    }
+                }
             }
             else
             {
@@ -2493,40 +3076,65 @@ namespace AudioStudio
             }
         }
         
-        private void Track_Drop(object sender, DragEventArgs e)
+        private void LabelPanel_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
             
-            if (sender is Border border && border.Tag is int trackIndex)
+            int trackIndex = GetTrackIndexFromSender(sender);
+            
+            if (trackIndex >= 0 && trackIndex < tracks.Count)
             {
-                // Убираем подсветку
-                border.BorderBrush = new SolidColorBrush(Color.FromRgb(62, 62, 66));
-                border.BorderThickness = new Thickness(0, 0, 1, 0);
+                // Сбрасываем IsDropTarget (рамка исчезает), но оставляем IsDropHighlighted (подсветка остаётся)
+                foreach (var t in tracks) t.IsDropTarget = false;
+                // IsDropHighlighted остаётся!
+                
+                int previousTrack = _trackIndexBeforeDrag >= 0 ? _trackIndexBeforeDrag : selectedTrackIndex;
+                int targetTrack = trackIndex;
                 
                 if (e.Data.GetDataPresent(DataFormats.FileDrop))
                 {
                     var files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                    
-                    // Загружаем в ЭТОТ трек
                     foreach (var file in files)
                     {
                         var ext = Path.GetExtension(file).ToLower();
                         if (AudioExtensions.Contains(ext))
                         {
-                            LoadFileToTrackOnTrack(file, trackIndex);
+                            int loadTrack = targetTrack;
+                            int restoreTrack = previousTrack;
+                            Task.Run(() => LoadFileAsyncAndKeepHighlight(file, loadTrack, restoreTrack));
                         }
                     }
-                    
-                    // ВОССТАНАВЛИВАЕМ выбор который был ДО drag
-                    selectedTrackIndex = _trackIndexBeforeDrag >= 0 ? _trackIndexBeforeDrag : trackIndex;
-                    UpdateTrackLabels();
-                    
-                    StatusText.Text = $"Загружено в трек {trackIndex + 1}";
+                    StatusText.Text = $"Загружается в трек {targetTrack + 1}...";
+                }
+                else if (e.Data.GetDataPresent(typeof(FileItem)))
+                {
+                    var fileItem = (FileItem)e.Data.GetData(typeof(FileItem));
+                    int restoreTrack = previousTrack;
+                    Task.Run(() => LoadFileAsyncAndKeepHighlight(fileItem.FullPath, targetTrack, restoreTrack));
+                    StatusText.Text = $"Загружается: {fileItem.Name} -> Трек {targetTrack + 1}";
                 }
             }
             
             _isDraggingFile = false;
-            _dragHoveredTrackIndex = -1;
+        }
+        
+        private void LoadFileAsyncAndKeepHighlight(string path, int targetTrack, int restoreTrack)
+        {
+            LoadFileAsync(path, targetTrack);
+            
+            Dispatcher.Invoke(() =>
+            {
+                // Сбрасываем ВСЕ IsDragOver
+                foreach (var track in tracks)
+                {
+                    track.IsDragOver = false;
+                }
+                
+                // IsDropHighlighted остаётся! Сбросится только при клике на трек
+                
+                selectedTrackIndex = restoreTrack;
+                UpdateTrackLabels();
+            });
         }
         
         private void Clip_MouseMove(object sender, MouseEventArgs e)
