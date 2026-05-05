@@ -1,20 +1,11 @@
-# 🎵 PRYTEK Audio Studio
+# 🎵 BF^Studio
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/entitiwhole/audio-studio/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-orange)](https://dotnet.microsoft.com/)
 
-```
-██████╗ ███████╗██╗   ██╗ █████╗ ██╗     ██╗     
-██╔══██╗██╔════╝██║   ██║██╔══██╗██║     ██║     
-██████╔╝█████╗  ██║   ██║███████║██║     ██║     
-██╔══██╗██╔══╝  ╚██╗ ██╔╝██╔══██║██║     ██║     
-██║  ██║███████╗ ╚████╔╝ ██║  ██║███████╗███████╗
-╚═╝  ╚═╝╚══════╝  ╚═══╝  ╚═╝  ╚═╝╚══════╝╚══════╝
-         S T U D I O
-```
-
 > 🖥️ Аудио редактор для Windows с Timeline, визуализацией waveform и эффектами обработки звука
+> **by PRYTEK Vision**
 
 ---
 
@@ -62,8 +53,9 @@
 
 ## 📥 Скачать
 
-📦 **[AudioStudio-Setup-1.0.0.exe](https://github.com/entitiwhole/audio-studio/releases/latest)**  
+📦 **[BFStudio-Setup-1.0.0.exe](https://github.com/entitiwhole/audio-studio/releases/latest)**  
 ⬇️ Установщик для Windows 10/11 (x64)
+> **by PRYTEK Vision**
 
 ---
 
@@ -115,7 +107,7 @@ dotnet publish AudioStudio/AudioStudio.csproj -c Release -r win-x64 --self-conta
 
 ```
 audio-studio/
-├── AudioStudio/
+├── AudioStudio/          # BF^Studio by PRYTEK Vision
 │   ├── Models/           # Модели данных
 │   ├── Services/         # Аудио движок, эффекты
 │   ├── Views/            # UI компоненты

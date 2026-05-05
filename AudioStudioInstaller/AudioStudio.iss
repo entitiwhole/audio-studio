@@ -1,9 +1,9 @@
-; AudioStudio Installer Script
+; BF^Studio Installer Script
 ; Inno Setup 6
 
-#define MyAppName "AudioStudio"
+#define MyAppName "BF^Studio"
 #define MyAppVersion "1.0.2"
-#define MyAppPublisher "AudioStudio"
+#define MyAppPublisher "PRYTEK Vision"
 #define SourcePath "E:\Atest1.0\AudioStudio\AudioStudio\bin\Release\App"
 
 [Setup]
@@ -11,21 +11,21 @@ AppId=7C5E1F2A-8B4D-4E3F-A2B1-C9D0E5F6A7B3
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={pf}\AudioStudio
+DefaultDirName={pf}\BF^Studio
 DisableProgramGroupPage=yes
-DefaultGroupName=AudioStudio
+DefaultGroupName=BF^Studio
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 OutputDir=.\Output
-OutputBaseFilename=AudioStudio-Setup-{#MyAppVersion}
+OutputBaseFilename=BFStudio-Setup-{#MyAppVersion}
 PrivilegesRequired=admin
-UninstallDisplayIcon={app}\AudioStudio.exe
+UninstallDisplayIcon={app}\BFStudio.exe
 SetupIconFile=E:\Atest1.0\AudioStudio\AudioStudio\hd_067e60e1d37959fea8c10910f1bec3f4-_1_-1.ico
 VersionInfoVersion=1.0.0.0
-VersionInfoCompany=AudioStudio
-VersionInfoDescription=AudioStudio Installer
-VersionInfoProductName=AudioStudio
+VersionInfoCompany=PRYTEK Vision
+VersionInfoDescription=BF^Studio Installer
+VersionInfoProductName=BF^Studio
 VersionInfoProductVersion=1.0.0.0
 
 [Languages]
@@ -40,11 +40,11 @@ Name: "startmenu"; Description: "Создать ярлык в меню Пуск"
 Source: "{#SourcePath}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\AudioStudio"; Filename: "{app}\AudioStudio.exe"; Tasks: startmenu
-Name: "{autodesktop}\AudioStudio"; Filename: "{app}\AudioStudio.exe"; Tasks: desktopicon
+Name: "{autoprograms}\BF^Studio"; Filename: "{app}\BFStudio.exe"; Tasks: startmenu
+Name: "{autodesktop}\BF^Studio"; Filename: "{app}\BFStudio.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\AudioStudio.exe"; Description: "Запустить AudioStudio"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\BFStudio.exe"; Description: "Запустить BF^Studio"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
