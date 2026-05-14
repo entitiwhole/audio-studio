@@ -14,12 +14,16 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using System.Windows.Documents;
 using Microsoft.Win32;
+using NAudio.Dsp;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using Path = System.IO.Path;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 using Point = System.Windows.Point;
+using AudioStudio.Commands;
+using AudioStudio.ContextMenus;
+using AudioStudio.Controls;
 
 namespace AudioStudio
 {
@@ -262,6 +266,24 @@ namespace AudioStudio
         public bool IsDragOver { get; set; }
         public bool IsDropTarget { get; set; } // Рамка - исчезает после drop
         public bool IsDropHighlighted { get; set; } // Подсветка надписи - остаётся до клика
+        
+        public AudioClip DeepClone()
+        {
+            return new AudioClip
+            {
+                Samples = (float[])Samples.Clone(),
+                SampleRate = SampleRate,
+                Channels = Channels,
+                StartTime = StartTime,
+                SourceFile = SourceFile,
+                TrackIndex = TrackIndex,
+                Name = Name,
+                Volume = Volume,
+                Pan = Pan,
+                Bounds = Bounds,
+                IsSelected = IsSelected
+            };
+        }
     }
 
     public class FileItem
@@ -341,12 +363,199 @@ namespace AudioStudio
         private bool isPlaying;
         private double currentTime;
         
-        private Stack<List<AudioClip>> undoStack = new();
-        private Stack<List<AudioClip>> redoStack = new();
+        // ========== Command System for Undo/Redo ==========
+        private readonly AudioStudio.Commands.CommandManager _commandManager = new();
         
-        private const int TrackHeight = 100;
+        // Selection overlay on separate layer
+        private SelectionOverlaySimple? _selectionOverlay;
+        
+        // Selection state (in seconds)
+        private double _selectionStartTime = -1;
+        private double _selectionEndTime = -1;
+        
+        // Selection dragging state
+        private bool _isSelecting;
+        private Point _selectionStartPoint;
+        private int _selectingTrackIndex = -1;
+        
+        // Handle dragging state (для ручек на waveform canvas)
+        private enum HandleDrag { None, Left, Right }
+        private HandleDrag _handleDrag = HandleDrag.None;
+        
+        // View mode
+        private bool _showSpectrogram = true;
+        private readonly Dictionary<int, float[]> _spectrogramCache = new();
+        
+        // Legacy SelectionManager (for compatibility)
+        public SelectionManager SelectionManager { get; private set; }
+        private AudioContextMenu? _contextMenu;
+        
+        // Public properties for Command access
+        public List<AudioClip> Tracks => tracks;
+        public List<AudioClip> TracksInternal => tracks;
+        public float[]? ClipboardData { get; set; }
+        public int ClipboardChannels { get; set; } = 2;
+        public int ClipboardSampleRate { get; set; } = 44100;
+        
+        // Create empty track helper for commands
+        public AudioClip CreateEmptyTrackInternal(int index)
+        {
+            return new AudioClip
+            {
+                TrackIndex = index,
+                Name = $"Дорожка {index + 1}",
+                Samples = Array.Empty<float>(),
+                StartTime = 0
+            };
+        }
+        
+        // Public accessors for SelectionManager
+        public double PixelsPerSecond => pixelsPerSecond;
+        
+        public bool HasSelection() => SelectionManager?.HasSelection ?? false;
+        
+        public bool HasClipboard() => ClipboardData != null && ClipboardData.Length > 0;
+        
+        public AudioStudio.Commands.CommandManager CommandManager => _commandManager;
+        
+        public int FocusedClipIndex
+        {
+            get => focusedClipIndex;
+            set => focusedClipIndex = value;
+        }
+        
+        public void UpdateSelectionDisplay()
+        {
+            if (SelectionManager?.HasSelection == true)
+            {
+                double start = Math.Min(SelectionManager.SelectionStart, SelectionManager.SelectionEnd);
+                double end = Math.Max(SelectionManager.SelectionStart, SelectionManager.SelectionEnd);
+                double duration = end - start;
+                
+                // Update TimeRuler
+                if (TimeRulerControl != null)
+                {
+                    TimeRulerControl.PixelsPerSecond = pixelsPerSecond;
+                    TimeRulerControl.SelectionStart = start;
+                    TimeRulerControl.SelectionEnd = end;
+                    TimeRulerControl.UpdateSelectionHighlight();
+                }
+                
+                StatusText.Text = $"Выделено: {FormatTime(duration)}";
+            }
+            else
+            {
+                // Hide selection on TimeRuler
+                if (TimeRulerControl != null)
+                {
+                    TimeRulerControl.SelectionStart = -1;
+                    TimeRulerControl.SelectionEnd = -1;
+                    TimeRulerControl.UpdateSelectionHighlight();
+                }
+            }
+        }
+        
+        public void ClearSelectionUI()
+        {
+            BtnCut.IsEnabled = false;
+            BtnCopy.IsEnabled = false;
+            BtnDelete.IsEnabled = false;
+            StatusText.Text = "Готов к работе";
+        }
+        
+        /// <summary>
+        /// Clear selection and hide overlay
+        /// </summary>
+        public void ClearSelection()
+        {
+            _selectionStartTime = -1;
+            _selectionEndTime = -1;
+            
+            // Clear SelectionManager too
+            SelectionManager.SelectionStart = -1;
+            SelectionManager.SelectionEnd = -1;
+            
+            // Hide overlay
+            if (_selectionOverlay != null)
+            {
+                _selectionOverlay.IsVisible = false;
+            }
+            
+            // Clear TimeRuler
+            if (TimeRulerControl != null)
+            {
+                TimeRulerControl.SelectionStart = -1;
+                TimeRulerControl.SelectionEnd = -1;
+                TimeRulerControl.UpdateSelectionHighlight();
+            }
+            
+            ClearSelectionUI();
+        }
+        
+        /// <summary>
+        /// Update selection UI with current selection
+        /// </summary>
+        private void UpdateSelectionUI()
+        {
+            if (_selectionStartTime < 0 || _selectionEndTime < 0) return;
+            
+            double start = Math.Min(_selectionStartTime, _selectionEndTime);
+            double end = Math.Max(_selectionStartTime, _selectionEndTime);
+            double duration = end - start;
+            
+            // Update overlay position (лейбл + скролл)
+            if (_selectionOverlay != null)
+            {
+                double scrollOffset = TracksScroller.HorizontalOffset;
+                _selectionOverlay.Left = start * pixelsPerSecond - scrollOffset + TrackLabelWidth;
+                _selectionOverlay.Right = end * pixelsPerSecond - scrollOffset + TrackLabelWidth;
+            }
+            
+            // Update TimeRuler
+            if (TimeRulerControl != null)
+            {
+                TimeRulerControl.PixelsPerSecond = pixelsPerSecond;
+                TimeRulerControl.SelectionStart = start;
+                TimeRulerControl.SelectionEnd = end;
+                TimeRulerControl.UpdateSelectionHighlight();
+            }
+        }
+        
+        private void TracksScroller_ScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            TimeRulerControl.ScrollOffset = TracksScroller.HorizontalOffset;
+            TimeRulerControl.TotalDuration = GetTotalDuration();
+            TimeRulerControl.UpdateTicks();
+            if (TimeRulerControl.SelectionStart >= 0)
+                TimeRulerControl.UpdateSelectionHighlight();
+            
+            if (_selectionStartTime >= 0 && _selectionEndTime >= 0)
+                UpdateSelectionUI();
+        }
+        
+        public void SelectAll()
+        {
+            if (selectedTrackIndex >= 0 && selectedTrackIndex < tracks.Count)
+            {
+                var track = tracks[selectedTrackIndex];
+                if (track.Samples.Length > 0)
+                {
+                    _selectionStartTime = 0;
+                    _selectionEndTime = track.Duration;
+                    SelectionManager.SelectionStart = 0;
+                    SelectionManager.SelectionEnd = track.Duration;
+                    focusedClipIndex = selectedTrackIndex;
+                    
+                    UpdateSelectionUI();
+                    EnableControls(true);
+                    StatusText.Text = "Выделено: весь клип";
+                }
+            }
+        }
+        
         private const int TrackMargin = 3;
-        private const int LabelWidth = 70;
+        private const int TrackLabelWidth = 160;
+        private const int TrackHeight = 100;
         private const double MinPixelsPerSecond = 5;
         private const int MaxTracks = 50; // Ограничение на количество треков
         private const int MaxClipsPerTrack = 100; // Ограничение на клипы
@@ -378,14 +587,22 @@ namespace AudioStudio
         {
             InitializeComponent();
             
+            // Initialize SelectionManager and ContextMenu
+            SelectionManager = new SelectionManager(this);
+            _contextMenu = new AudioContextMenu();
+            _contextMenu.SetMainWindow(this);
+            
+            // Subscribe to command history changes
+            _commandManager.HistoryChanged += UpdateCommandButtons;
+            
             tracks.Add(CreateEmptyTrack(0));
             tracks.Add(CreateEmptyTrack(1));
             
-            // Оптимизированный таймер воспроизведения (60 FPS для плавного UI)
+            // Optimized playback timer (60 FPS for smooth UI)
             playTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
             playTimer.Tick += (s, e) => UpdatePlayheadFromEngine();
             
-            // Подписка на событие остановки
+            // Subscribe to stop event
             _audio.OnPlaybackStopped += () =>
             {
                 Dispatcher.Invoke(() =>
@@ -403,13 +620,22 @@ namespace AudioStudio
             KeyDown += MainWindow_KeyDown_Global;
             KeyUp += MainWindow_KeyUp_Global;
             
-            Loaded += (s, e) => 
+            Loaded += (s, e) =>
             {
+                // Create selection overlay on the separate layer (чисто визуальный)
+                _selectionOverlay = new SelectionOverlaySimple(SelectionCanvas);
+                
+                // Выравниваем TimeRuler под начало waveform (после лейбла)
+                TimeRulerControl.Offset = TrackLabelWidth;
+                TimeRulerControl.ScrollOffset = 0;
+                TimeRulerControl.TotalDuration = GetTotalDuration();
+                TimeRulerControl.UpdateTicks();
+                
                 DrawTimeline();
                 UpdateTrackLabels();
                 InitializeBrowser();
                 
-                // Привязываем drag-drop обработчики к TreeView
+                // Attach drag-drop handlers to TreeView
                 SetupTreeViewDragDrop();
             };
             
@@ -417,7 +643,6 @@ namespace AudioStudio
             {
                 if (!_isResizing) DrawTimeline();
             };
-            
         }
         
         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -1232,25 +1457,7 @@ namespace AudioStudio
             }
         }
         
-        private void SelectAll()
-        {
-            if (selectedTrackIndex >= 0 && selectedTrackIndex < tracks.Count)
-            {
-                var track = tracks[selectedTrackIndex];
-                if (track.Samples.Length > 0)
-                {
-                    selectionStart = track.StartTime;
-                    selectionEnd = track.StartTime + track.Duration;
-                    track.IsSelected = true;
-                    DrawTimeline();
-                    UpdateSelectionDisplay();
-                    EnableControls(true);
-                    StatusText.Text = "Выделено: весь клип";
-                }
-            }
-        }
-
-        private void UpdateTrackLabels()
+        public void UpdateTrackLabels()
         {
             TracksPanel.Children.Clear();
             _playheadLines.Clear(); // Оптимизация: очищаем кэш playhead
@@ -1269,7 +1476,7 @@ namespace AudioStudio
                     Tag = track.TrackIndex
                 };
                 
-                trackRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+                trackRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(TrackLabelWidth) });
                 trackRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 
                 // Рамка - только во время drag, исчезает после drop
@@ -1369,9 +1576,10 @@ namespace AudioStudio
                 };
                 playButton.Click += (s, e) => 
                 {
-                    // При клике сбрасываем drop-highlighted и выбираем трек
+                    // При клике сбрасываем drop-highlighted, выделение и выбираем трек
                     foreach (var t in tracks) t.IsDropHighlighted = false;
                     foreach (var t in tracks) t.IsDropTarget = false;
+                    ClearSelection();
                     selectedTrackIndex = track.TrackIndex;
                     UpdateTrackLabels();
                 };
@@ -1388,11 +1596,19 @@ namespace AudioStudio
                 labelPanel.Child = labelGrid;
                 labelPanel.MouseLeftButtonDown += (s, args) =>
                 {
-                    // При клике сбрасываем drop-highlighted и выбираем трек
                     foreach (var t in tracks) { t.IsDropHighlighted = false; t.IsDropTarget = false; }
+                    ClearSelection();
                     selectedTrackIndex = (int)((Border)s).Tag;
                     UpdateTrackLabels();
-                    UpdateInstrumentsWindow(); // Обновляем окно инструментов
+                    UpdateInstrumentsWindow();
+                };
+                labelPanel.MouseRightButtonDown += (s, args) =>
+                {
+                    selectedTrackIndex = (int)((Border)s).Tag;
+                    focusedClipIndex = selectedTrackIndex;
+                    _contextMenu?.UpdateMenuState();
+                    _contextMenu!.IsOpen = true;
+                    args.Handled = true;
                 };
                 
                 var waveformCanvas = new Canvas
@@ -1406,6 +1622,7 @@ namespace AudioStudio
                 waveformCanvas.MouseLeftButtonDown += WaveformCanvas_MouseLeftButtonDown;
                 waveformCanvas.MouseMove += WaveformCanvas_MouseMove;
                 waveformCanvas.MouseLeftButtonUp += WaveformCanvas_MouseLeftButtonUp;
+                waveformCanvas.MouseRightButtonUp += WaveformCanvas_MouseRightButtonUp;
                 
                 waveformPanel.Child = waveformCanvas;
                 
@@ -1509,127 +1726,264 @@ namespace AudioStudio
         {
             if (clip.Samples == null || clip.Samples.Length == 0) return;
             
-            // Ограничиваем ширину waveform для производительности (макс 5000 пикс)
             double displayWidth = Math.Min(Math.Max(1, width), 5000);
             
-            // Оптимизация: используем кэшированные пики если есть
-            float[] peaks;
-            if (_waveformPeaks.TryGetValue(clip.TrackIndex, out peaks))
+            if (_showSpectrogram)
             {
-                DrawWaveformFromPeaks(canvas, peaks, displayWidth, clip.TrackIndex);
+                DrawSpectrogramInCanvas(canvas, clip, displayWidth);
+                return;
             }
-            else
+            
+            // Пики считаются один раз при загрузке (макс 5000) и кэшируются
+            if (!_waveformPeaks.TryGetValue(clip.TrackIndex, out float[] peaks))
             {
-                // Вычисляем пики с ограниченным количеством (макс 2000)
-                int peakCount = (int)displayWidth;
-                if (peakCount > 2000) peakCount = 2000;
-                if (peakCount < 100) peakCount = 100;
-                
-                peaks = ComputePeaks(clip.Samples, peakCount);
+                peaks = ComputePeaks(clip.Samples, 5000);
                 _waveformPeaks[clip.TrackIndex] = peaks;
-                DrawWaveformFromPeaks(canvas, peaks, displayWidth, clip.TrackIndex);
             }
+            
+            DrawWaveformFromPeaks(canvas, peaks, displayWidth, clip.TrackIndex);
         }
         
-        // GPU-ускоренный waveform с использованием WriteableBitmap
+        // FL Studio-style waveform (vector-based, anti-aliased)
         private void DrawWaveformFromPeaks(Canvas canvas, float[] peaks, double width, int trackIndex)
         {
-            canvas.Children.Clear();
-            
-            // Ограничиваем ширину для производительности
-            int maxWidth = 5000;
-            int w = Math.Min(Math.Max(1, (int)width), maxWidth);
+            if (peaks == null || peaks.Length == 0) return;
+
+            double h = TrackHeight - 4;
+            double centerY = h / 2;
+            double scale = centerY * 1.2;
+            int n = Math.Min(peaks.Length, Math.Max(100, (int)width));
+            double xStep = width / n;
+
+            // Remove old waveform paths, keep playhead/end lines
+            var toRemove = canvas.Children.OfType<System.Windows.Shapes.Path>().ToList();
+            foreach (var p in toRemove) canvas.Children.Remove(p);
+
+            var accentColor = Color.FromRgb(255, 120, 129);
+            var upperPath = new PathGeometry();
+            var upperFig = new PathFigure { StartPoint = new Point(0, centerY) };
+            upperFig.Segments.Add(new LineSegment(new Point(0, centerY), true));
+
+            for (int i = 0; i < n; i++)
+            {
+                int idx = (int)((double)i / n * peaks.Length);
+                float peak = peaks[Math.Min(idx, peaks.Length - 1)];
+                double x = i * xStep;
+                double y = centerY - peak * scale;
+                upperFig.Segments.Add(new LineSegment(new Point(x, y), true));
+            }
+            upperFig.Segments.Add(new LineSegment(new Point(width - xStep, centerY), true));
+            upperFig.Segments.Add(new LineSegment(new Point(0, centerY), true));
+            upperPath.Figures.Add(upperFig);
+
+            var lowerPath = new PathGeometry();
+            var lowerFig = new PathFigure { StartPoint = new Point(0, centerY) };
+            lowerFig.Segments.Add(new LineSegment(new Point(0, centerY), true));
+            for (int i = 0; i < n; i++)
+            {
+                int idx = (int)((double)i / n * peaks.Length);
+                float peak = peaks[Math.Min(idx, peaks.Length - 1)];
+                double x = i * xStep;
+                double y = centerY + peak * scale;
+                lowerFig.Segments.Add(new LineSegment(new Point(x, y), true));
+            }
+            lowerFig.Segments.Add(new LineSegment(new Point(width - xStep, centerY), true));
+            lowerFig.Segments.Add(new LineSegment(new Point(0, centerY), true));
+            lowerPath.Figures.Add(lowerFig);
+
+            canvas.Children.Insert(0, new System.Windows.Shapes.Path
+            {
+                Data = upperPath,
+                Fill = new SolidColorBrush(Color.FromArgb(180, 255, 120, 129)),
+                Opacity = 0.9
+            });
+            canvas.Children.Insert(0, new System.Windows.Shapes.Path
+            {
+                Data = lowerPath,
+                Fill = new SolidColorBrush(Color.FromArgb(100, 255, 120, 129)),
+                Opacity = 0.6
+            });
+        }
+
+        // ========== Spectrogram rendering with caching ==========
+        private void EnsureSpectrogramCache(AudioClip clip, out float[] data, out int numFrames, out int fftSize)
+        {
+            int trackIdx = clip.TrackIndex;
+            if (_spectrogramCache.TryGetValue(trackIdx, out float[] cached))
+            {
+                fftSize = (int)cached[0];
+                numFrames = (int)cached[1];
+                data = cached;
+                return;
+            }
+
+            fftSize = 512;
+            int m = (int)Math.Round(Math.Log(fftSize, 2));
+            int hop = fftSize / 2;
+            int channels = clip.Channels;
+            int totalFrames = clip.Samples.Length / channels;
+            numFrames = Math.Max(1, (totalFrames - fftSize) / hop + 1);
+            int bins = fftSize / 2;
+
+            float[] specData = new float[2 + numFrames * bins];
+            specData[0] = fftSize;
+            specData[1] = numFrames;
+
+            Complex[] cbuf = new Complex[fftSize];
+            float[] window = new float[fftSize];
+            for (int i = 0; i < fftSize; i++)
+                window[i] = 0.5f * (1 - (float)Math.Cos(2 * Math.PI * i / (fftSize - 1)));
+
+            for (int f = 0; f < numFrames; f++)
+            {
+                int startSample = f * hop * channels;
+                if (startSample + fftSize * channels > clip.Samples.Length) break;
+
+                for (int i = 0; i < fftSize; i++)
+                {
+                    float s = 0;
+                    for (int ch = 0; ch < channels; ch++)
+                    {
+                        int idx = startSample + i * channels + ch;
+                        if (idx < clip.Samples.Length) s += clip.Samples[idx];
+                    }
+                    cbuf[i].X = (s / channels) * window[i];
+                    cbuf[i].Y = 0;
+                }
+
+                FastFourierTransform.FFT(true, m, cbuf);
+
+                for (int b = 0; b < bins; b++)
+                {
+                    float mag = (float)Math.Sqrt(cbuf[b].X * cbuf[b].X + cbuf[b].Y * cbuf[b].Y);
+                    float db = 20 * (float)Math.Log10(Math.Max(mag, 1e-10f));
+                    specData[2 + f * bins + b] = db;
+                }
+            }
+
+            _spectrogramCache[trackIdx] = specData;
+            data = specData;
+        }
+
+        private void DrawSpectrogramInCanvas(Canvas canvas, AudioClip clip, double width)
+        {
+            if (clip.Samples == null || clip.Samples.Length == 0) return;
+
+            double displayWidth = Math.Min(Math.Max(1, width), 5000);
+            int w = Math.Min(Math.Max(1, (int)displayWidth), 5000);
             int h = Math.Max(1, TrackHeight - 4);
-            
-            if (peaks == null || peaks.Length == 0 || w <= 0) return;
-            
+
+            EnsureSpectrogramCache(clip, out float[] cacheEntry, out int numFrames, out int fftSize);
+            int bins = fftSize / 2;
+            int dataOffset = 2;
+
+            System.Windows.Controls.Image? specImage = null;
+            foreach (var child in canvas.Children)
+            {
+                if (child is System.Windows.Controls.Image img && img.Tag?.ToString() == "spec")
+                {
+                    specImage = img;
+                    break;
+                }
+            }
+
             try
             {
-                // Создаём WriteableBitmap для GPU-отрисовки
-                var bmp = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgra32, null);
-                
+                WriteableBitmap bmp;
+                if (specImage?.Source is WriteableBitmap existing && existing.PixelWidth == w && existing.PixelHeight == h)
+                {
+                    bmp = existing;
+                }
+                else
+                {
+                    bmp = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgra32, null);
+                    if (specImage != null)
+                    {
+                        specImage.Source = bmp;
+                        specImage.Width = w;
+                        specImage.Height = h;
+                    }
+                    else
+                    {
+                        specImage = new System.Windows.Controls.Image
+                        {
+                            Source = bmp,
+                            Width = w,
+                            Height = h,
+                            Tag = "spec"
+                        };
+                        Canvas.SetLeft(specImage, 0);
+                        Canvas.SetTop(specImage, 2);
+                        canvas.Children.Insert(0, specImage);
+                    }
+                }
+
                 bmp.Lock();
-                
                 unsafe
                 {
                     IntPtr buffer = bmp.BackBuffer;
                     int* pixels = (int*)buffer.ToPointer();
                     int stride = bmp.BackBufferStride;
-                    
-                    // Цвета (BGRA format)
-                    int bgColor = unchecked((int)0xFF1E1E1E);    // Тёмный фон
-                    int fgColor = unchecked((int)0xFFFF7881);   // Цвет waveform
-                    int centerColor = unchecked((int)0x40969696); // Центральная линия
-                    
-                    // Очищаем буфер
+
+                    int bgColor = unchecked((int)0xFF1E1E1E);
                     for (int i = 0; i < w * h; i++)
-                    {
                         pixels[i] = bgColor;
-                    }
-                    
-                    // Рисуем waveform
-                    double step = w > 0 ? (double)peaks.Length / w : 1.0;
-                    int midY = h / 2;
-                    
+
+                    double minDb = -80, maxDb = 0;
+                    double frameStep = Math.Max(1, (double)numFrames / w);
+                    double binStep = (double)bins / h;
+
                     for (int x = 0; x < w; x++)
                     {
-                        int peakIdx = (int)(x * step);
-                        if (peakIdx < 0) peakIdx = 0;
-                        if (peakIdx >= peaks.Length) peakIdx = peaks.Length - 1;
-                        
-                        float peak = peaks[peakIdx];
-                        int amplitude = Math.Min(h / 2, (int)(peak * h / 2));
-                        
-                        // Рисуем вертикальную линию для каждого столбика
-                        for (int y = midY - amplitude; y <= midY + amplitude; y++)
+                        int fIdx = (int)(x * frameStep);
+                        if (fIdx >= numFrames) fIdx = numFrames - 1;
+
+                        for (int y = 0; y < h; y++)
                         {
-                            if (y >= 0 && y < h)
-                            {
-                                int offset = y * (stride / 4) + x;
-                                pixels[offset] = fgColor;
-                            }
-                        }
-                        
-                        // Центральная линия
-                        if (midY >= 0 && midY < h)
-                        {
-                            int offset = midY * (stride / 4) + x;
-                            pixels[offset] = centerColor;
+                            int bIdx = (int)(y * binStep);
+                            if (bIdx >= bins) bIdx = bins - 1;
+
+                            float db = cacheEntry[dataOffset + fIdx * bins + bIdx];
+                            float norm = (float)((db - minDb) / (maxDb - minDb));
+                            if (norm < 0) norm = 0;
+                            if (norm > 1) norm = 1;
+
+                            int pixelY = h - 1 - y;
+                            pixels[pixelY * (stride / 4) + x] = HeatMapColor(norm);
                         }
                     }
+
+                    bmp.AddDirtyRect(new Int32Rect(0, 0, w, h));
                 }
-                
-                // Применяем изменения
-                bmp.AddDirtyRect(new Int32Rect(0, 0, w, h));
                 bmp.Unlock();
-                
-                // Создаём Image и добавляем на canvas
-                var image = new System.Windows.Controls.Image
-                {
-                    Source = bmp,
-                    Width = w,
-                    Height = h
-                };
-                
-                Canvas.SetLeft(image, 0);
-                Canvas.SetTop(image, 2);
-                
-                canvas.Children.Add(image);
             }
-            catch
+            catch { }
+        }
+
+        private static int HeatMapColor(float t)
+        {
+            byte r, g, b;
+            if (t < 0.25f)
             {
-                // Fallback: простая отрисовка если GPU не доступен
-                var centerLine = new Line
-                {
-                    X1 = 0,
-                    Y1 = h / 2 + 2,
-                    X2 = w,
-                    Y2 = h / 2 + 2,
-                    Stroke = new SolidColorBrush(Color.FromArgb(150, 150, 150, 150)),
-                    StrokeThickness = 1
-                };
-                canvas.Children.Add(centerLine);
+                float v = t / 0.25f;
+                r = 0; g = (byte)(v * 60); b = (byte)(80 + v * 175);
             }
+            else if (t < 0.5f)
+            {
+                float v = (t - 0.25f) / 0.25f;
+                r = 0; g = (byte)(60 + v * 195); b = (byte)(255 - v * 80);
+            }
+            else if (t < 0.75f)
+            {
+                float v = (t - 0.5f) / 0.25f;
+                r = (byte)(v * 255); g = (byte)(255); b = (byte)(175 - v * 175);
+            }
+            else
+            {
+                float v = (t - 0.75f) / 0.25f;
+                r = (byte)(255); g = (byte)(255 - v * 200); b = (byte)(0);
+            }
+            return (255 << 24) | (b << 16) | (g << 8) | r;
         }
 
         // ========== Browser/Tracks Splitter ==========
@@ -1708,9 +2062,11 @@ namespace AudioStudio
             DrawTimeline();
         }
         
-        private void DrawTimeline()
+        public void DrawTimeline()
         {
             UpdateTrackLabels();
+            TimeRulerControl.TotalDuration = GetTotalDuration();
+            TimeRulerControl.UpdateTicks();
         }
 
         private double GetTotalDuration()
@@ -1750,38 +2106,24 @@ namespace AudioStudio
         {
         }
 
-        private void UpdateSelectionDisplay()
+        private void UpdateCommandButtons()
         {
+            BtnUndo.IsEnabled = _commandManager.CanUndo;
+            BtnRedo.IsEnabled = _commandManager.CanRedo;
         }
-
-        private void ClearSelection()
-        {
-            selectionStart = -1;
-            selectionEnd = -1;
-            UpdateSelectionDisplay();
-            BtnCut.IsEnabled = false;
-            BtnCopy.IsEnabled = false;
-            BtnDelete.IsEnabled = false;
-        }
-
-        private void EnableControls(bool enable)
+        
+        public void EnableControls(bool enable)
         {
             BtnPlay.IsEnabled = enable && tracks.Any(t => t.Samples.Length > 0);
             BtnStop.IsEnabled = enable;
             BtnApply.IsEnabled = enable && tracks.Any(t => t.Samples.Length > 0);
-            BtnCut.IsEnabled = enable && HasSelection();
-            BtnCopy.IsEnabled = enable && HasSelection();
-            BtnPaste.IsEnabled = enable && clipboard != null;
-            BtnDelete.IsEnabled = enable && HasSelection();
-            BtnUndo.IsEnabled = undoStack.Count > 0;
-            BtnRedo.IsEnabled = redoStack.Count > 0;
+            BtnCut.IsEnabled = enable && SelectionManager.HasSelection;
+            BtnCopy.IsEnabled = enable && SelectionManager.HasSelection;
+            BtnPaste.IsEnabled = enable && ClipboardData != null;
+            BtnDelete.IsEnabled = enable && SelectionManager.HasSelection;
+            UpdateCommandButtons();
         }
-
-        private bool HasSelection()
-        {
-            return selectionStart >= 0 && selectionEnd >= 0 && Math.Abs(selectionEnd - selectionStart) > 0.05;
-        }
-
+        
         private void OpenFile_Click(object sender, RoutedEventArgs e)
         {
             var dialog = new Microsoft.Win32.OpenFileDialog 
@@ -1804,20 +2146,58 @@ namespace AudioStudio
             Task.Run(() => LoadFileAsync(path, trackIndex));
         }
         
-        // Перегрузка для явного указания трека (из TreeView, drag-drop)
         private void LoadFileToTrackOnTrack(string path, int trackIndex)
         {
             if (trackIndex < 0) trackIndex = 0;
             if (trackIndex >= tracks.Count) trackIndex = 0;
             
-            Task.Run(() => LoadFileAsync(path, trackIndex));
+            // Use Command for undo/redo
+            var command = new LoadFileCommand(this, path, trackIndex);
+            _commandManager.Execute(command);
+        }
+        
+        // Synchronous file loading for commands
+        public void LoadFileToTrackSync(string path, int trackIndex)
+        {
+            try
+            {
+                var track = tracks[trackIndex];
+                
+                using var reader = new AudioFileReader(path);
+                var allSamples = new List<float>();
+                var buffer = new float[131072];
+                int read;
+                while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    for (int i = 0; i < read; i++)
+                        allSamples.Add(buffer[i]);
+                }
+                
+                var samples = allSamples.ToArray();
+                allSamples.Clear();
+                
+                track.Samples = samples;
+                track.SampleRate = reader.WaveFormat.SampleRate;
+                track.Channels = reader.WaveFormat.Channels;
+                track.SourceFile = path;
+                track.Name = Path.GetFileName(path);
+                track.StartTime = 0;
+                
+                // Update waveform cache
+                int peakCount = samples.Length > 10_000_000 ? 500 : (samples.Length > 5_000_000 ? 750 : 1000);
+                _waveformPeaks[trackIndex] = ComputePeaks(samples, peakCount);
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = $"Error loading file: {ex.Message}";
+            }
         }
         
         private void LoadFileAsync(string path, int trackIndex)
         {
             try
             {
-                // Проверка памяти перед загрузкой
+                // Check memory before loading
                 long memUsed = GC.GetTotalMemory(false);
                 if (memUsed > 2_000_000_000) // > 2GB
                 {
@@ -1830,7 +2210,6 @@ namespace AudioStudio
                 
                 Dispatcher.Invoke(() =>
                 {
-                    SaveUndoState();
                     StatusText.Text = "Чтение файла...";
                 });
                 
@@ -1838,16 +2217,16 @@ namespace AudioStudio
                 int sampleRate;
                 int channels;
                 
-                // Читаем аудио файл
+                // Read audio file
                 using (var reader = new AudioFileReader(path))
                 {
                     sampleRate = reader.WaveFormat.SampleRate;
                     channels = reader.WaveFormat.Channels;
                     
-                    // Получаем реальную длительность
+                    // Get actual duration
                     var duration = reader.TotalTime;
                     
-                    // Проверяем длительность (макс 2 часа)
+                    // Check duration (max 2 hours)
                     if (duration.TotalSeconds > 7200)
                     {
                         Dispatcher.Invoke(() =>
@@ -1857,12 +2236,11 @@ namespace AudioStudio
                         return;
                     }
                     
-                    // Для MP3/AAC нельзя предсказать размер - используем List<float>
-                    // Начальная ёмкость = примерный размер
+                    // Use List<float> for variable-length files (MP3/AAC)
                     int estimatedSize = (int)(duration.TotalSeconds * sampleRate * channels);
                     var allSamples = new List<float>(estimatedSize);
                     
-                    var buffer = new float[131072]; // 128K буфер
+                    var buffer = new float[131072]; // 128K buffer
                     int read;
                     long totalRead = 0;
                     
@@ -1873,14 +2251,13 @@ namespace AudioStudio
                     
                     while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
                     {
-                        // Добавляем прочитанные сэмплы
                         for (int i = 0; i < read; i++)
                         {
                             allSamples.Add(buffer[i]);
                         }
                         totalRead += read;
                         
-                        // Обновляем прогресс каждые ~5 секунд
+                        // Update progress every ~5 seconds
                         if (totalRead % (sampleRate * channels * 5) < buffer.Length)
                         {
                             double secondsRead = totalRead / (double)(sampleRate * channels);
@@ -1896,7 +2273,7 @@ namespace AudioStudio
                     }
                     
                     samples = allSamples.ToArray();
-                    allSamples.Clear(); // Освобождаем память List
+                    allSamples.Clear(); // Free List memory
                 }
                 
                 Dispatcher.Invoke(() =>
@@ -1904,18 +2281,25 @@ namespace AudioStudio
                     StatusText.Text = "Расчёт waveform...";
                 });
                 
-                // Для больших файлов уменьшаем количество пиков
+                // For large files reduce peak count
                 int peakCount = samples.Length > 10_000_000 ? 500 : (samples.Length > 5_000_000 ? 750 : 1000);
                 
-                // Вычисляем пики для waveform
+                // Compute peaks for waveform
                 var peaks = ComputePeaks(samples, peakCount);
                 
-                // Обновляем UI в главном потоке
+                // Update UI in main thread
                 Dispatcher.Invoke(() =>
                 {
                     if (trackIndex >= tracks.Count) trackIndex = 0;
                     
                     var track = tracks[trackIndex];
+                    
+                    // Save current state for undo BEFORE changing
+                    var previousSamples = track.Samples.Length > 0 ? (float[])track.Samples.Clone() : null;
+                    var previousSampleRate = track.SampleRate;
+                    var previousChannels = track.Channels;
+                    
+                    // Apply new data
                     track.Samples = samples;
                     track.SampleRate = sampleRate;
                     track.Channels = channels;
@@ -1923,12 +2307,19 @@ namespace AudioStudio
                     track.Name = Path.GetFileName(path);
                     track.StartTime = 0;
                     
-                    // Кэшируем waveform
+                    // Cache waveform
                     _waveformPeaks[trackIndex] = peaks;
                     
                     RebuildMixer();
                     DrawTimeline();
                     UpdateTrackLabels();
+                    
+                    // Create command for undo and add to history (but don't re-execute)
+                    var command = new LoadFileCommand(this, path, trackIndex);
+                    // Set the previous state that was captured before loading
+                    command.SetPreviousState(previousSamples, previousSampleRate, previousChannels, path, Path.GetFileName(path));
+                    // Execute it to add to undo stack
+                    _commandManager.Execute(command);
                     
                     StatusText.Text = $"Загружено: {track.Name}";
                     CurrentTimeText.Text = "00:00";
@@ -1951,8 +2342,7 @@ namespace AudioStudio
             if (samples == null || samples.Length == 0 || peakCount <= 0) 
                 return Array.Empty<float>();
             
-            // Ограничиваем peakCount для больших файлов (макс 2000 пиков)
-            if (peakCount > 2000) peakCount = 2000;
+            if (peakCount > 5000) peakCount = 5000;
             
             var peaks = new float[peakCount];
             int samplesPerPeak = Math.Max(1, samples.Length / peakCount);
@@ -1962,16 +2352,35 @@ namespace AudioStudio
                 int start = i * samplesPerPeak;
                 int end = Math.Min(start + samplesPerPeak, samples.Length);
                 
-                float max = 0;
+                float max = 0, sum = 0;
+                int count = 0;
                 for (int j = start; j < end; j++)
                 {
                     float abs = Math.Abs(samples[j]);
                     if (abs > max) max = abs;
+                    sum += abs;
+                    count++;
                 }
-                peaks[i] = max;
+                float avg = count > 0 ? sum / count : 0;
+                peaks[i] = avg * 0.6f + max * 0.4f;
             }
             
-            return peaks;
+            // Smooth peaks with moving average
+            var smoothed = new float[peakCount];
+            int window = Math.Max(1, peakCount / 100);
+            for (int i = 0; i < peakCount; i++)
+            {
+                float s = 0;
+                int n = 0;
+                for (int j = Math.Max(0, i - window); j <= Math.Min(peakCount - 1, i + window); j++)
+                {
+                    s += peaks[j];
+                    n++;
+                }
+                smoothed[i] = s / n;
+            }
+            
+            return smoothed;
         }
         
         private void ConvertToWav(string inputPath, string outputPath)
@@ -1996,7 +2405,7 @@ namespace AudioStudio
             }
         }
 
-        private void RebuildMixer()
+        public void RebuildMixer()
         {
             // Очищаем старые waveform при перезагрузке
             if (tracks.Count < _waveformPeaks.Count)
@@ -2096,25 +2505,93 @@ namespace AudioStudio
         
         private void WaveformCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (sender is Canvas canvas)
+            if (sender is Canvas canvas && canvas.Tag is int trackIndex)
             {
                 var pos = e.GetPosition(canvas);
                 double playheadX = currentTime * pixelsPerSecond;
                 
-                if (Math.Abs(pos.X - playheadX) < 20 || IsOnPlayhead(pos, canvas))
+                // Если кликнули очень близко к плейхеду (<8px) — перетаскивание плейхеда
+                if (isPlaying && Math.Abs(pos.X - playheadX) < 8)
                 {
                     isDraggingPlayhead = true;
                     dragStartX = pos.X;
                     dragStartTime = currentTime;
                     canvas.CaptureMouse();
-                    
-                    if (isPlaying)
-                    {
-                        _audio.Pause();
-                    }
-                    
                     e.Handled = true;
+                    return;
                 }
+                
+                // Если не играет — можно перетаскивать плейхед в любом месте
+                if (!isPlaying && Math.Abs(pos.X - playheadX) < 20)
+                {
+                    isDraggingPlayhead = true;
+                    dragStartX = pos.X;
+                    dragStartTime = currentTime;
+                    canvas.CaptureMouse();
+                    e.Handled = true;
+                    return;
+                }
+                
+                // Если есть активное выделение — проверяем клик по ручкам
+                _handleDrag = HandleDrag.None;
+                if (_selectionStartTime >= 0 && _selectionEndTime >= 0)
+                {
+                    double scrollOff = TracksScroller.HorizontalOffset;
+                    double selLeft = Math.Min(_selectionStartTime, _selectionEndTime) * pixelsPerSecond - scrollOff;
+                    double selRight = Math.Max(_selectionStartTime, _selectionEndTime) * pixelsPerSecond - scrollOff;
+                    
+                    if (Math.Abs(pos.X - selLeft) < 10)
+                    {
+                        _handleDrag = HandleDrag.Left;
+                        canvas.CaptureMouse();
+                        e.Handled = true;
+                        return;
+                    }
+                    if (Math.Abs(pos.X - selRight) < 10)
+                    {
+                        _handleDrag = HandleDrag.Right;
+                        canvas.CaptureMouse();
+                        e.Handled = true;
+                        return;
+                    }
+                }
+                
+                // Сбрасываем старое выделение при клике вне ручек
+                ClearSelection();
+                
+                // Если трек пустой — не начинаем новое выделение
+                if (trackIndex < tracks.Count)
+                {
+                    var clip = tracks[trackIndex];
+                    bool hasAudio = clip.Samples != null && clip.Samples.Length > 0;
+                    if (!hasAudio)
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+                }
+                
+                // Start selection
+                _isSelecting = true;
+                
+                // Координаты относительно SelectionCanvas (видимая область без скролла)
+                var canvasPos = e.GetPosition(SelectionCanvas);
+                _selectionStartPoint = new Point(canvasPos.X, canvasPos.Y);
+                
+                // Показываем оверлей сразу
+                if (_selectionOverlay != null)
+                {
+                    _selectionOverlay.Left = canvasPos.X;
+                    _selectionOverlay.Right = canvasPos.X;
+                    _selectionOverlay.IsVisible = true;
+                }
+                
+                selectedTrackIndex = trackIndex;
+                focusedClipIndex = trackIndex;
+                _selectingTrackIndex = trackIndex;
+                
+                canvas.CaptureMouse();
+                e.Handled = true;
             }
         }
         
@@ -2126,9 +2603,37 @@ namespace AudioStudio
         
         private void WaveformCanvas_MouseMove(object sender, MouseEventArgs e)
         {
-            if (isDraggingPlayhead && sender is Canvas canvas)
+            // Drag selection handle (левая или правая ручка)
+            if (_handleDrag != HandleDrag.None && sender is Canvas && sender is Canvas hCanvas)
             {
-                var pos = e.GetPosition(canvas);
+                var pos = e.GetPosition(hCanvas);
+                double newTime = pos.X / pixelsPerSecond;
+                
+                if (_handleDrag == HandleDrag.Left)
+                {
+                    _selectionStartTime = Math.Max(0, Math.Min(newTime, _selectionEndTime - 0.05));
+                }
+                else if (_handleDrag == HandleDrag.Right)
+                {
+                    _selectionEndTime = Math.Max(_selectionStartTime + 0.05, newTime);
+                }
+                
+                // Sync SelectionManager
+                double s = Math.Min(_selectionStartTime, _selectionEndTime);
+                double e2 = Math.Max(_selectionStartTime, _selectionEndTime);
+                SelectionManager.SelectionStart = s;
+                SelectionManager.SelectionEnd = e2;
+                UpdateSelectionUI();
+                
+                double dur = e2 - s;
+                StatusText.Text = $"Выделение: {FormatTime(dur)}";
+                return;
+            }
+            
+            // Update playhead ONLY if not currently selecting
+            if (!_isSelecting && isDraggingPlayhead && sender is Canvas && sender is Canvas playheadCanvas)
+            {
+                var pos = e.GetPosition(playheadCanvas);
                 double deltaX = pos.X - dragStartX;
                 double deltaTime = deltaX / pixelsPerSecond;
                 double newTime = dragStartTime + deltaTime;
@@ -2140,26 +2645,25 @@ namespace AudioStudio
                     SeekToTime(currentTime);
                     CurrentTimeText.Text = FormatTime(currentTime);
                     TotalTimeText.Text = FormatTime(GetTotalDuration());
-                    
-                    double playheadX = currentTime * pixelsPerSecond;
-                    foreach (var child in TracksPanel.Children)
-                    {
-                        if (child is Grid grid)
-                        {
-                            foreach (var element in grid.Children)
-                            {
-                                if (element is Border border && border.Child is Canvas c)
-                                {
-                                    foreach (var line in c.Children.OfType<Line>())
-                                    {
-                                        line.X1 = playheadX;
-                                        line.X2 = playheadX;
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
+            }
+            
+            // Update selection on overlay while dragging (работает и во время playback)
+            if (_isSelecting)
+            {
+                var canvasPos = e.GetPosition(SelectionCanvas);
+                double left = Math.Min(_selectionStartPoint.X, canvasPos.X);
+                double right = Math.Max(_selectionStartPoint.X, canvasPos.X);
+                
+                if (_selectionOverlay != null)
+                {
+                    _selectionOverlay.Left = left;
+                    _selectionOverlay.Right = right;
+                }
+                
+                // Show live duration in status
+                double duration = (right - left) / pixelsPerSecond;
+                StatusText.Text = $"Выделение: {FormatTime(duration)}";
             }
         }
         
@@ -2172,13 +2676,85 @@ namespace AudioStudio
                 {
                     canvas.ReleaseMouseCapture();
                 }
-                
-                _audio.Play();
-                isPlaying = true;
-                BtnPlay.Content = "⏸";
-                playTimer?.Start();
-                StatusText.Text = "Воспроизведение...";
+                return;
             }
+            
+            if (_handleDrag != HandleDrag.None)
+            {
+                _handleDrag = HandleDrag.None;
+                if (sender is Canvas canvas)
+                {
+                    canvas.ReleaseMouseCapture();
+                }
+                double dur = Math.Abs(_selectionEndTime - _selectionStartTime);
+                StatusText.Text = $"Выделено: {FormatTime(dur)}";
+                return;
+            }
+            
+            // End selection
+            if (_isSelecting)
+            {
+                _isSelecting = false;
+                if (sender is Canvas canvas)
+                {
+                    canvas.ReleaseMouseCapture();
+                }
+                
+                // Convert pixels to time — вычитаем ширину лейбла, добавляем скролл
+                if (_selectionOverlay != null && _selectionOverlay.IsVisible)
+                {
+                    double scrollOffset = TracksScroller.HorizontalOffset;
+                    _selectionStartTime = (_selectionOverlay.Left - TrackLabelWidth + scrollOffset) / pixelsPerSecond;
+                    _selectionEndTime = (_selectionOverlay.Right - TrackLabelWidth + scrollOffset) / pixelsPerSecond;
+                    
+                    double duration = Math.Abs(_selectionEndTime - _selectionStartTime);
+                    
+                    // Minimum 50ms
+                    if (duration < 0.05)
+                    {
+                        ClearSelection();
+                        return;
+                    }
+                    
+                    // Sync SelectionManager
+                    double selStart = Math.Min(_selectionStartTime, _selectionEndTime);
+                    double selEnd = Math.Max(_selectionStartTime, _selectionEndTime);
+                    SelectionManager.SelectionStart = selStart;
+                    SelectionManager.SelectionEnd = selEnd;
+                    
+                    UpdateSelectionUI();
+                    EnableControls(true);
+                    
+                    StatusText.Text = $"Выделено: {FormatTime(duration)}";
+                }
+            }
+        }
+        
+        // FL Studio style: Right-click shows context menu
+        private void WaveformCanvas_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is Canvas canvas)
+            {
+                int trackIndex = canvas.Tag is int ti ? ti : selectedTrackIndex;
+                if (trackIndex < 0) trackIndex = 0;
+                
+                selectedTrackIndex = trackIndex;
+                focusedClipIndex = trackIndex;
+                
+                // Update context menu state
+                _contextMenu?.UpdateMenuState();
+                
+                // Show context menu at cursor position
+                _contextMenu!.IsOpen = true;
+                
+                e.Handled = true;
+            }
+        }
+
+        private void SetPlayIcon(bool playing)
+        {
+            if (BtnPlay.Content is FontAwesome.Sharp.IconBlock icon)
+                icon.Icon = playing ? FontAwesome.Sharp.IconChar.Pause : FontAwesome.Sharp.IconChar.Play;
         }
 
         private void Play_Click(object sender, RoutedEventArgs e)
@@ -2187,7 +2763,7 @@ namespace AudioStudio
             {
                 _audio.Pause();
                 isPlaying = false;
-                BtnPlay.Content = "▶";
+                SetPlayIcon(false);
                 playTimer.Stop();
                 StatusText.Text = "Пауза";
             }
@@ -2198,7 +2774,7 @@ namespace AudioStudio
                 
                 _audio.Play();
                 isPlaying = true;
-                BtnPlay.Content = "⏸";
+                SetPlayIcon(true);
                 playTimer.Start();
                 StatusText.Text = "Воспроизведение...";
             }
@@ -2208,7 +2784,7 @@ namespace AudioStudio
         {
             _audio.Stop();
             isPlaying = false;
-            BtnPlay.Content = "▶";
+            SetPlayIcon(false);
             playTimer.Stop();
             currentTime = 0;
             DrawTimeline();
@@ -2217,162 +2793,130 @@ namespace AudioStudio
             TotalTimeText.Text = FormatTime(GetTotalDuration());
         }
 
-        private void Cut_Click(object sender, RoutedEventArgs e)
+        public void Cut_Click(object sender, RoutedEventArgs e)
         {
-            if (!HasSelection() || focusedClipIndex < 0) return;
-            
-            SaveUndoState();
+            if (!SelectionManager.HasSelection || focusedClipIndex < 0) return;
             
             var track = tracks[focusedClipIndex];
-            double start = Math.Min(selectionStart, selectionEnd);
-            double end = Math.Max(selectionStart, selectionEnd);
+            var range = SelectionManager.GetSampleRange(track);
+            if (range == null) return;
             
-            int startSample = (int)(start * track.SampleRate * track.Channels);
-            int endSample = (int)(end * track.SampleRate * track.Channels);
-            startSample = Math.Max(0, startSample);
-            endSample = Math.Min(track.Samples.Length, endSample);
-            
+            var (startSample, endSample) = range.Value;
             int length = endSample - startSample;
-            clipboard = new float[length];
-            Array.Copy(track.Samples, startSample, clipboard, 0, length);
-            clipboardChannels = track.Channels;
-            clipboardSampleRate = track.SampleRate;
+            if (length <= 0) return;
+
+            var command = new CutCommand(this, focusedClipIndex, startSample, length, 
+                track.Channels, track.SampleRate);
+            _commandManager.Execute(command);
             
-            var newSamples = new float[track.Samples.Length - length];
-            Array.Copy(track.Samples, 0, newSamples, 0, startSample);
-            Array.Copy(track.Samples, endSample, newSamples, startSample, track.Samples.Length - endSample);
-            track.Samples = newSamples;
-            
-            ClearSelection();
-            RebuildMixer();
+            // Сбрасываем кэш waveform и спектрограммы
+            _waveformPeaks.Remove(focusedClipIndex);
+            _waveformBitmaps.Remove(focusedClipIndex);
+            _spectrogramCache.Remove(focusedClipIndex);
             DrawTimeline();
-            UpdateTrackLabels();
             
-            StatusText.Text = $"Вырезано: {FormatTime((double)length / (clipboardSampleRate * clipboardChannels))}";
+            SelectionManager.ClearSelection();
+            ClearSelection();
+            StatusText.Text = $"Вырезано: {FormatTime((double)length / (track.SampleRate * track.Channels))}";
         }
 
-        private void Copy_Click(object sender, RoutedEventArgs e)
+        public void Copy_Click(object sender, RoutedEventArgs e)
         {
-            if (!HasSelection() || focusedClipIndex < 0) return;
+            if (!SelectionManager.HasSelection || focusedClipIndex < 0) return;
             
             var track = tracks[focusedClipIndex];
-            double start = Math.Min(selectionStart, selectionEnd);
-            double end = Math.Max(selectionStart, selectionEnd);
+            var range = SelectionManager.GetSampleRange(track);
+            if (range == null) return;
             
-            int startSample = (int)(start * track.SampleRate * track.Channels);
-            int endSample = (int)(end * track.SampleRate * track.Channels);
-            startSample = Math.Max(0, startSample);
-            endSample = Math.Min(track.Samples.Length, endSample);
-            
+            var (startSample, endSample) = range.Value;
             int length = endSample - startSample;
-            clipboard = new float[length];
-            Array.Copy(track.Samples, startSample, clipboard, 0, length);
-            clipboardChannels = track.Channels;
-            clipboardSampleRate = track.SampleRate;
-            
-            StatusText.Text = $"Скопировано: {FormatTime((double)length / (clipboardSampleRate * clipboardChannels))}";
+            if (length <= 0) return;
+
+            ClipboardData = new float[length];
+            Array.Copy(track.Samples, startSample, ClipboardData, 0, length);
+            ClipboardChannels = track.Channels;
+            ClipboardSampleRate = track.SampleRate;
+
+            StatusText.Text = $"Скопировано: {FormatTime((double)length / (ClipboardSampleRate * ClipboardChannels))}";
         }
 
-        private void Paste_Click(object sender, RoutedEventArgs e)
+        public void Paste_Click(object sender, RoutedEventArgs e)
         {
-            if (clipboard == null || clipboard.Length == 0) return;
+            if (ClipboardData == null || ClipboardData.Length == 0) return;
             if (selectedTrackIndex < 0) selectedTrackIndex = 0;
             
-            SaveUndoState();
-            
             var track = tracks[selectedTrackIndex];
-            double pasteTime = selectionStart >= 0 ? Math.Min(selectionStart, selectionEnd) : 0;
+            double pasteTime = SelectionManager.HasSelection ? 
+                Math.Min(SelectionManager.SelectionStart, SelectionManager.SelectionEnd) : 
+                currentTime;
+            
             int pasteSample = (int)(pasteTime * track.SampleRate * track.Channels);
             pasteSample = Math.Max(0, Math.Min(pasteSample, track.Samples.Length));
+
+            var command = new PasteCommand(this, selectedTrackIndex, pasteSample, ClipboardData);
+            _commandManager.Execute(command);
             
-            var newSamples = new float[track.Samples.Length + clipboard.Length];
-            Array.Copy(track.Samples, 0, newSamples, 0, pasteSample);
-            Array.Copy(clipboard, 0, newSamples, pasteSample, clipboard.Length);
-            Array.Copy(track.Samples, pasteSample, newSamples, pasteSample + clipboard.Length, track.Samples.Length - pasteSample);
-            
-            track.Samples = newSamples;
-            
-            RebuildMixer();
+            // Сбрасываем кэш waveform и спектрограммы
+            _waveformPeaks.Remove(selectedTrackIndex);
+            _waveformBitmaps.Remove(selectedTrackIndex);
+            _spectrogramCache.Remove(selectedTrackIndex);
             DrawTimeline();
-            UpdateTrackLabels();
             
-            StatusText.Text = $"Вставлено: {FormatTime((double)clipboard.Length / (clipboardSampleRate * clipboardChannels))}";
+            StatusText.Text = $"Вставлено: {FormatTime((double)ClipboardData.Length / (ClipboardSampleRate * ClipboardChannels))}";
         }
 
-        private void Delete_Click(object sender, RoutedEventArgs e)
+        public void Delete_Click(object sender, RoutedEventArgs e)
         {
-            if (!HasSelection() || focusedClipIndex < 0) return;
-            
-            SaveUndoState();
+            if (!SelectionManager.HasSelection || focusedClipIndex < 0) return;
             
             var track = tracks[focusedClipIndex];
-            double start = Math.Min(selectionStart, selectionEnd);
-            double end = Math.Max(selectionStart, selectionEnd);
+            var range = SelectionManager.GetSampleRange(track);
+            if (range == null) return;
             
-            int startSample = (int)(start * track.SampleRate * track.Channels);
-            int endSample = (int)(end * track.SampleRate * track.Channels);
-            startSample = Math.Max(0, startSample);
-            endSample = Math.Min(track.Samples.Length, endSample);
+            var (startSample, endSample) = range.Value;
+            int length = endSample - startSample;
+            if (length <= 0) return;
+
+            var command = new DeleteCommand(this, focusedClipIndex, startSample, length);
+            _commandManager.Execute(command);
             
-            var newSamples = new float[track.Samples.Length - (endSample - startSample)];
-            Array.Copy(track.Samples, 0, newSamples, 0, startSample);
-            Array.Copy(track.Samples, endSample, newSamples, startSample, track.Samples.Length - endSample);
-            track.Samples = newSamples;
-            
-            ClearSelection();
-            RebuildMixer();
+            // Сбрасываем кэш waveform и спектрограммы
+            _waveformPeaks.Remove(focusedClipIndex);
+            _waveformBitmaps.Remove(focusedClipIndex);
+            _spectrogramCache.Remove(focusedClipIndex);
             DrawTimeline();
-            UpdateTrackLabels();
             
+            SelectionManager.ClearSelection();
+            ClearSelection();
             StatusText.Text = "Удалено";
         }
 
-        private void Undo_Click(object sender, RoutedEventArgs e)
+        public void Undo_Click(object sender, RoutedEventArgs e)
         {
-            if (undoStack.Count == 0) return;
-            
-            redoStack.Push(CloneTracks());
-            tracks = undoStack.Pop();
-            
-            RebuildMixer();
-            DrawTimeline();
-            UpdateTrackLabels();
-            EnableControls(true);
-            StatusText.Text = "Отменено";
-        }
-
-        private void Redo_Click(object sender, RoutedEventArgs e)
-        {
-            if (redoStack.Count == 0) return;
-            
-            undoStack.Push(CloneTracks());
-            tracks = redoStack.Pop();
-            
-            RebuildMixer();
-            DrawTimeline();
-            UpdateTrackLabels();
-            EnableControls(true);
-            StatusText.Text = "Повторено";
-        }
-
-        private List<AudioClip> CloneTracks()
-        {
-            return tracks.Select(t => new AudioClip
+            if (_commandManager.CanUndo)
             {
-                Samples = (float[])t.Samples.Clone(),
-                SampleRate = t.SampleRate,
-                Channels = t.Channels,
-                StartTime = t.StartTime,
-                SourceFile = t.SourceFile,
-                TrackIndex = t.TrackIndex,
-                Name = t.Name
-            }).ToList();
+                _commandManager.Undo();
+                _spectrogramCache.Clear();
+                _waveformPeaks.Clear();
+                _waveformBitmaps.Clear();
+                DrawTimeline();
+                EnableControls(true);
+                StatusText.Text = $"Отменено: {_commandManager.LastUndoDescription}";
+            }
         }
 
-        private void SaveUndoState()
+        public void Redo_Click(object sender, RoutedEventArgs e)
         {
-            undoStack.Push(CloneTracks());
-            redoStack.Clear();
+            if (_commandManager.CanRedo)
+            {
+                _commandManager.Redo();
+                _spectrogramCache.Clear();
+                _waveformPeaks.Clear();
+                _waveformBitmaps.Clear();
+                DrawTimeline();
+                EnableControls(true);
+                StatusText.Text = $"Повторено: {_commandManager.LastRedoDescription}";
+            }
         }
 
         private void AddTrack_Click(object sender, RoutedEventArgs e)
@@ -2383,10 +2927,8 @@ namespace AudioStudio
                 return;
             }
             
-            SaveUndoState();
-            tracks.Add(CreateEmptyTrack(tracks.Count));
-            DrawTimeline();
-            UpdateTrackLabels();
+            var command = new AddTrackCommand(this);
+            _commandManager.Execute(command);
             StatusText.Text = $"Добавлена дорожка {tracks.Count}";
         }
 
@@ -2394,30 +2936,35 @@ namespace AudioStudio
         {
             if (tracks.Count <= 1) return;
             
-            SaveUndoState();
-            
-            // Очищаем память удаляемого трека
-            var lastTrack = tracks[tracks.Count - 1];
-            if (lastTrack.Samples != null)
-            {
-                lastTrack.Samples = Array.Empty<float>();
-            }
-            _waveformPeaks.Remove(tracks.Count - 1);
-            
-            tracks.RemoveAt(tracks.Count - 1);
+            var command = new RemoveTrackCommand(this, tracks.Count - 1);
+            _commandManager.Execute(command);
             
             if (selectedTrackIndex >= tracks.Count)
                 selectedTrackIndex = tracks.Count - 1;
             
-            RebuildMixer();
-            DrawTimeline();
-            UpdateTrackLabels();
-            
-            // Принудительная сборка мусора
+            // Force garbage collection
             GC.Collect();
             GC.WaitForPendingFinalizers();
             
             StatusText.Text = "Дорожка удалена";
+        }
+
+        public void ClearTrack_Click(object sender, RoutedEventArgs e)
+        {
+            if (selectedTrackIndex < 0 || selectedTrackIndex >= tracks.Count) return;
+            var track = tracks[selectedTrackIndex];
+            if (track.Samples.Length == 0) return;
+
+            track.Samples = Array.Empty<float>();
+            track.SourceFile = null;
+            track.Name = $"Дорожка {selectedTrackIndex + 1}";
+
+            _waveformPeaks.Remove(selectedTrackIndex);
+            _waveformBitmaps.Remove(selectedTrackIndex);
+            _spectrogramCache.Remove(selectedTrackIndex);
+            ClearSelection();
+            DrawTimeline();
+            StatusText.Text = $"Трек {selectedTrackIndex + 1} очищен";
         }
 
         private void SaveProject_Click(object sender, RoutedEventArgs e)
@@ -2458,6 +3005,21 @@ namespace AudioStudio
             StatusText.Text = "Масштаб сброшен";
         }
 
+        private void ToggleView_Click(object sender, RoutedEventArgs e)
+        {
+            _showSpectrogram = !_showSpectrogram;
+            if (BtnToggleView != null)
+            {
+                var icon = BtnToggleView.Content as FontAwesome.Sharp.IconBlock;
+                if (icon != null)
+                    icon.Icon = _showSpectrogram ? FontAwesome.Sharp.IconChar.WaveSquare : FontAwesome.Sharp.IconChar.ChartLine;
+            }
+            _waveformPeaks.Clear();
+            _waveformBitmaps.Clear();
+            DrawTimeline();
+            StatusText.Text = _showSpectrogram ? "Режим: спектрограмма" : "Режим: waveform";
+        }
+
         private void ZoomSlider_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (ZoomSlider != null && ZoomValue != null)
@@ -2465,12 +3027,7 @@ namespace AudioStudio
                 pixelsPerSecond = ZoomSlider.Value;
                 ZoomValue.Text = $"{pixelsPerSecond:F0}%";
                 
-                // Очищаем кэш waveform для перерисовки с новым масштабом
-                _waveformPeaks.Clear();
-                
                 DrawTimeline();
-                
-                // Обновляем позиции playhead и конца трека после зума
                 UpdatePlayheadUI();
             }
         }
@@ -2900,10 +3457,28 @@ namespace AudioStudio
             }
         }
         
+        private void TracksBorder_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            var point = e.GetPosition(TracksContainer);
+            int clickedTrack = (int)(point.Y / (TrackHeight + TrackMargin));
+            if (clickedTrack >= 0 && clickedTrack < tracks.Count)
+            {
+                selectedTrackIndex = clickedTrack;
+                focusedClipIndex = clickedTrack;
+                _contextMenu?.UpdateMenuState();
+                _contextMenu!.IsOpen = true;
+                e.Handled = true;
+            }
+        }
+
         private void TracksBorder_MouseDown(object sender, MouseButtonEventArgs e)
         {
             var point = e.GetPosition(TracksContainer);
             int clickedTrack = (int)(point.Y / (TrackHeight + TrackMargin));
+            
+            // Всегда сбрасываем выделение при клике вне waveform
+            ClearSelection();
+            
             if (clickedTrack >= 0 && clickedTrack < tracks.Count)
             {
                 selectedTrackIndex = clickedTrack;
@@ -2921,6 +3496,12 @@ namespace AudioStudio
                 {
                     StatusText.Text = $"Выбран трек {clickedTrack + 1}: пустой";
                 }
+            }
+            else
+            {
+                // Клик в пустое место (ниже треков) — просто сбрасываем выделение
+                StatusText.Text = "Выделение сброшено";
+                UpdateTrackLabels();
             }
         }
         
