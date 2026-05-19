@@ -375,7 +375,7 @@
                                 <TreeView.ItemTemplate>
                                     <HierarchicalDataTemplate ItemsSource="{Binding Children}">
                                         <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding Icon}" Foreground="#FFAAAAAA" Margin="0,0,6,0"/>
+                                            <fa:IconBlock Icon="{Binding Icon}" Foreground="#FFAAAAAA" Margin="0,0,6,0" FontSize="12"/>
                                             <TextBlock Text="{Binding DisplayName}" Foreground="White"/>
                                             <TextBlock Text="{Binding Duration}" Foreground="#FF888888" FontSize="9" Margin="8,0,0,0"
                                                        Visibility="{Binding IsDirectory, Converter={StaticResource InverseBoolToVis}}"/>
@@ -418,6 +418,9 @@
                             </Button>
                             <Button x:Name="BtnStop" Style="{StaticResource StopButton}" Click="Stop_Click" IsEnabled="False" Margin="5,0,0,0">
                                 <fa:IconBlock Icon="Stop" Foreground="White" FontSize="14"/>
+                            </Button>
+                            <Button x:Name="BtnLoop" Style="{StaticResource ToolButton}" Click="LoopToggle_Click" Margin="8,0,0,0" ToolTip="Зациклить">
+                                <fa:IconBlock Icon="RotateRight" Foreground="#FFAAAAAA" FontSize="14"/>
                             </Button>
                         </StackPanel>
 
@@ -514,14 +517,37 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Статус -->
-                <TextBlock x:Name="StatusText" Text="Готов к работе" Foreground="#FF4CAF50" FontSize="11" VerticalAlignment="Center"/>
+                <!-- Статус + кольцо активности -->
+                <StackPanel Orientation="Horizontal">
+                    <Grid x:Name="ActivityRing" Width="22" Height="22" VerticalAlignment="Center" Cursor="Hand"
+                          Margin="0,0,8,0" ClipToBounds="False"
+                          MouseEnter="SpinnerGrid_MouseEnter" MouseLeave="SpinnerGrid_MouseLeave">
+                        <Ellipse x:Name="RingBg" Stroke="#FF555555" StrokeThickness="2" Fill="Transparent"/>
+                        <Path x:Name="RingProgress" Stroke="#FF7881FF" StrokeThickness="2.5" Fill="Transparent"
+                              Stretch="None"
+                              RenderTransformOrigin="0.5,0.5" Visibility="Collapsed"/>
+                    </Grid>
+                    <TextBlock x:Name="StatusText" Text="Готово" Foreground="#FF7881FF" FontSize="11" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Инфотип Popup -->
+                <Popup x:Name="ActivityPopup" Placement="Top" PlacementTarget="{Binding ElementName=ActivityRing}"
+                       StaysOpen="True" AllowsTransparency="True" PopupAnimation="Fade"
+                       IsOpen="False">
+                    <Border Background="#FF2D2D30" BorderBrush="#FF3E3E42" BorderThickness="1"
+                            CornerRadius="4" Padding="14,10" MinWidth="200">
+                        <StackPanel>
+                            <TextBlock x:Name="PopupTitle" Text="" Foreground="#FFCCCCCC" FontSize="11"/>
+                            <TextBlock x:Name="PopupDescription" Text="" Foreground="#FF888888" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+                </Popup>
 
                 <!-- Время -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,20,0">
-                    <TextBlock x:Name="CurrentTimeText" Text="00:00:00" Foreground="#FF7881FF" FontSize="14" FontFamily="Consolas" FontWeight="Bold"/>
+                    <TextBlock x:Name="CurrentTimeText" Text="00:00:00" Foreground="#FF7881FF" FontSize="14" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center"/>
                     <TextBlock Text=" / " Foreground="#FF666666" FontSize="14" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="TotalTimeText" Text="00:00:00" Foreground="#FF888888" FontSize="14" FontFamily="Consolas"/>
+                    <TextBlock x:Name="TotalTimeText" Text="00:00:00" Foreground="#FF888888" FontSize="14" FontFamily="Consolas" VerticalAlignment="Center"/>
                 </StackPanel>
 
                 <!-- Масштаб -->

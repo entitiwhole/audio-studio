@@ -153,6 +153,16 @@ public class AudioEngine
     }
     
     public bool IsPlaying => _clock.IsRunning;
+    public bool IsLooping { get; set; }
+
+    public void SetLoopMode(bool loop)
+    {
+        IsLooping = loop;
+        foreach (var provider in _providers)
+        {
+            provider.IsLooping = loop;
+        }
+    }
     
     // Preview - играет одиночные сэмплы (для Instruments window)
     public void PlayPreview(float[] samples, int sampleRate, int channels)

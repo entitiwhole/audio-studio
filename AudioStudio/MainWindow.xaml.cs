@@ -71,11 +71,11 @@ namespace AudioStudio
     // ========== Ghost Adorner для drag-drop как в FL Studio ==========
     public class GhostAdorner : Adorner
     {
-        private readonly string icon;
+        private readonly FontAwesome.Sharp.IconChar icon;
         private readonly string fileName;
         private Point _offset = new Point(15, -30);
         
-        public GhostAdorner(UIElement adornedElement, string fileIcon, string fileNameText) 
+        public GhostAdorner(UIElement adornedElement, FontAwesome.Sharp.IconChar fileIcon, string fileNameText) 
             : base(adornedElement)
         {
             icon = fileIcon;
@@ -104,10 +104,11 @@ namespace AudioStudio
                 Orientation = Orientation.Horizontal
             };
             
-            stackPanel.Children.Add(new TextBlock
+            stackPanel.Children.Add(new FontAwesome.Sharp.IconBlock
             {
-                Text = icon,
+                Icon = icon,
                 FontSize = 18,
+                Foreground = Brushes.White,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 10, 0)
             });
@@ -164,10 +165,10 @@ namespace AudioStudio
             
             // Рисуем иконку и текст
             var formattedIcon = new FormattedText(
-                icon,
+                char.ConvertFromUtf32((int)icon),
                 System.Globalization.CultureInfo.CurrentCulture,
                 FlowDirection.LeftToRight,
-                new Typeface("Segoe UI Emoji"),
+                new Typeface(new FontFamily("pack://application:,,,/FontAwesome.Sharp;component/fonts/#Font Awesome 6 Free Solid"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
                 18,
                 Brushes.White,
                 VisualTreeHelper.GetDpi(this).PixelsPerDip);
@@ -292,23 +293,23 @@ namespace AudioStudio
         public string FullPath { get; set; } = "";
         public string Extension { get; set; } = "";
         public bool IsDirectory { get; set; } = false;
-        public string Icon => GetFileIcon(Extension);
+        public FontAwesome.Sharp.IconChar Icon => GetFileIcon(Extension);
         public string Duration { get; set; } = "";
         public long Size { get; set; }
         public List<object> Children { get; set; } = new(); // для совместимости с TreeView
         public string DisplayName => Name;
 
-        public static string GetFileIcon(string ext)
+        public static FontAwesome.Sharp.IconChar GetFileIcon(string ext)
         {
             return ext.ToLower() switch
             {
-                ".wav" => "🔊",
-                ".mp3" => "🎵",
-                ".flac" => "🎶",
-                ".ogg" => "🎼",
-                ".m4a" => "🎧",
-                ".aiff" or ".aif" => "🎹",
-                _ => "📄"
+                ".wav" => FontAwesome.Sharp.IconChar.FileAudio,
+                ".mp3" => FontAwesome.Sharp.IconChar.Music,
+                ".flac" => FontAwesome.Sharp.IconChar.CompactDisc,
+                ".ogg" => FontAwesome.Sharp.IconChar.FileAudio,
+                ".m4a" => FontAwesome.Sharp.IconChar.Headphones,
+                ".aiff" or ".aif" => FontAwesome.Sharp.IconChar.FileAudio,
+                _ => FontAwesome.Sharp.IconChar.File
             };
         }
     }
@@ -331,7 +332,7 @@ namespace AudioStudio
     {
         public string Name { get; set; } = "";
         public string FullPath { get; set; } = "";
-        public string Icon => "📁";
+        public FontAwesome.Sharp.IconChar Icon => FontAwesome.Sharp.IconChar.Folder;
         public string DisplayName => Name;
         public string Duration { get; set; } = "";
         public bool IsDirectory { get; set; } = true;
@@ -362,6 +363,13 @@ namespace AudioStudio
         private DispatcherTimer? _previewTimer;
         private bool isPlaying;
         private double currentTime;
+        private bool _isLoopEnabled;
+        private bool _isOperationActive;
+        private string _currentOperationDescription = "";
+        private string _activityBaseText = "";
+        private int _dotsPhase;
+        private DispatcherTimer? _popupUpdateTimer;
+        private DispatcherTimer? _dotsTimer;
         
         // ========== Command System for Undo/Redo ==========
         private readonly AudioStudio.Commands.CommandManager _commandManager = new();
@@ -441,7 +449,7 @@ namespace AudioStudio
                     TimeRulerControl.UpdateSelectionHighlight();
                 }
                 
-                StatusText.Text = $"Выделено: {FormatTime(duration)}";
+                SetStatusText($"Выделено: {FormatTime(duration)}");
             }
             else
             {
@@ -460,7 +468,7 @@ namespace AudioStudio
             BtnCut.IsEnabled = false;
             BtnCopy.IsEnabled = false;
             BtnDelete.IsEnabled = false;
-            StatusText.Text = "Готов к работе";
+            SetStatusText("Готово");
         }
         
         /// <summary>
@@ -548,7 +556,7 @@ namespace AudioStudio
                     
                     UpdateSelectionUI();
                     EnableControls(true);
-                    StatusText.Text = "Выделено: весь клип";
+                    SetStatusText("Выделено: весь клип");
                 }
             }
         }
@@ -612,7 +620,8 @@ namespace AudioStudio
                     playTimer.Stop();
                     currentTime = 0;
                     DrawTimeline();
-                    StatusText.Text = "Воспроизведение завершено";
+                    SetStatusText("Воспроизведение завершено");
+                    StatusText.Foreground = new SolidColorBrush(Color.FromRgb(120, 129, 255));
                 });
             };
             
@@ -630,7 +639,7 @@ namespace AudioStudio
                 TimeRulerControl.ScrollOffset = 0;
                 TimeRulerControl.TotalDuration = GetTotalDuration();
                 TimeRulerControl.UpdateTicks();
-                
+
                 DrawTimeline();
                 UpdateTrackLabels();
                 InitializeBrowser();
@@ -894,7 +903,7 @@ namespace AudioStudio
             return null;
         }
         
-        private void ShowGhostAdorner(string icon, string fileName)
+        private void ShowGhostAdorner(FontAwesome.Sharp.IconChar icon, string fileName)
         {
             // Получаем AdornerLayer из TracksBorder
             _adornerLayer = AdornerLayer.GetAdornerLayer(TracksBorder);
@@ -959,11 +968,11 @@ namespace AudioStudio
                     FolderTree.Items.Refresh();
                 });
                 
-                StatusText.Text = $"Загружено дисков: {drives.Count}";
+                SetStatusText($"Загружено дисков: {drives.Count}");
             }
             catch (Exception ex)
             {
-                StatusText.Text = $"Ошибка загрузки дисков: {ex.Message}";
+                SetStatusText($"Ошибка загрузки дисков: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine($"LoadDrives error: {ex}");
             }
         }
@@ -1141,11 +1150,11 @@ namespace AudioStudio
                 if (tracks[currentTrack].Samples.Length > 0)
                 {
                     var currentFile = Path.GetFileName(tracks[currentTrack].SourceFile ?? "");
-                    StatusText.Text = $"Выбран: {file.Name} | Двойной клик или drag -> Трек {currentTrack + 1} (заменит \"{currentFile}\")";
+                    SetStatusText($"Выбран: {file.Name} | Двойной клик или drag -> Трек {currentTrack + 1} (заменит \"{currentFile}\")");
                 }
                 else
                 {
-                    StatusText.Text = $"Выбран: {file.Name} | Двойной клик или drag -> Трек {currentTrack + 1}";
+                    SetStatusText($"Выбран: {file.Name} | Двойной клик или drag -> Трек {currentTrack + 1}");
                 }
             }
         }
@@ -1184,15 +1193,15 @@ namespace AudioStudio
                     fileCount += CountFilesRecursive(item);
                 }
                 
-                StatusText.Text = $"Загружено файлов: {fileCount}";
+                // StatusText shows "Готово" by default
             }
             catch (UnauthorizedAccessException)
             {
-                StatusText.Text = "Нет доступа к папке";
+                SetStatusText("Нет доступа к папке");
             }
             catch (Exception ex)
             {
-                StatusText.Text = $"Ошибка: {ex.Message}";
+                SetStatusText($"Ошибка: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine($"LoadFolderContents error: {ex}");
             }
         }
@@ -1291,7 +1300,7 @@ namespace AudioStudio
                 CurrentPathBox.Text = _rootPath;
                 LoadDrives();
                 LoadFolderContents(_rootPath);
-                StatusText.Text = $"Браузер: {_rootPath}";
+                SetStatusText($"Браузер: {_rootPath}");
             }
         }
         
@@ -1869,8 +1878,8 @@ namespace AudioStudio
         {
             if (clip.Samples == null || clip.Samples.Length == 0) return;
 
-            double displayWidth = Math.Min(Math.Max(1, width), 5000);
-            int w = Math.Min(Math.Max(1, (int)displayWidth), 5000);
+            double displayWidth = Math.Max(1, Math.Min(width, 100000));
+            int w = Math.Max(1, Math.Min((int)displayWidth, 100000));
             int h = Math.Max(1, TrackHeight - 4);
 
             EnsureSpectrogramCache(clip, out float[] cacheEntry, out int numFrames, out int fftSize);
@@ -2189,7 +2198,7 @@ namespace AudioStudio
             }
             catch (Exception ex)
             {
-                StatusText.Text = $"Error loading file: {ex.Message}";
+                SetStatusText($"Error loading file: {ex.Message}");
             }
         }
         
@@ -2203,14 +2212,14 @@ namespace AudioStudio
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        StatusText.Text = "Мало памяти! Очистите треки.";
+                        SetStatusText("Мало памяти! Очистите треки.");
                     });
                     return;
                 }
                 
                 Dispatcher.Invoke(() =>
                 {
-                    StatusText.Text = "Чтение файла...";
+                    StartActivity("Загрузка");
                 });
                 
                 float[] samples;
@@ -2231,7 +2240,7 @@ namespace AudioStudio
                     {
                         Dispatcher.Invoke(() =>
                         {
-                            StatusText.Text = "Файл слишком длинный (макс 2 часа)";
+                            SetStatusText("Файл слишком длинный (макс 2 часа)");
                         });
                         return;
                     }
@@ -2246,7 +2255,7 @@ namespace AudioStudio
                     
                     Dispatcher.Invoke(() =>
                     {
-                        StatusText.Text = "Декодирование...";
+                        UpdateActivityProgress("Декодирование...");
                     });
                     
                     while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
@@ -2265,10 +2274,10 @@ namespace AudioStudio
                                 ? (int)(secondsRead * 100 / duration.TotalSeconds) 
                                 : 0;
                             if (percent > 99) percent = 99;
-                            Dispatcher.Invoke(() =>
-                            {
-                                StatusText.Text = $"Декодирование... {percent}% ({secondsRead:F0}/{duration.TotalSeconds:F0}с)";
-                            });
+                    Dispatcher.Invoke(() =>
+                    {
+                        UpdateActivityProgress($"Декодирование... {percent}% ({secondsRead:F0}/{duration.TotalSeconds:F0}с)");
+                    });
                         }
                     }
                     
@@ -2278,7 +2287,7 @@ namespace AudioStudio
                 
                 Dispatcher.Invoke(() =>
                 {
-                    StatusText.Text = "Расчёт waveform...";
+                    SetStatusText("Расчёт waveform...");
                 });
                 
                 // For large files reduce peak count
@@ -2321,17 +2330,19 @@ namespace AudioStudio
                     // Execute it to add to undo stack
                     _commandManager.Execute(command);
                     
-                    StatusText.Text = $"Загружено: {track.Name}";
+                    SetStatusText($"Загружено: {track.Name}");
                     CurrentTimeText.Text = "00:00";
                     TotalTimeText.Text = FormatTime(track.Duration);
                     EnableControls(true);
+                    StopActivity($"Загружен: {track.Name}");
                 });
             }
             catch (Exception ex)
             {
                 Dispatcher.Invoke(() =>
                 {
-                    StatusText.Text = $"Ошибка: {ex.Message}";
+                    SetStatusText($"Ошибка: {ex.Message}");
+                    StopActivity();
                 });
             }
         }
@@ -2626,7 +2637,7 @@ namespace AudioStudio
                 UpdateSelectionUI();
                 
                 double dur = e2 - s;
-                StatusText.Text = $"Выделение: {FormatTime(dur)}";
+                SetStatusText($"Выделение: {FormatTime(dur)}");
                 return;
             }
             
@@ -2663,7 +2674,7 @@ namespace AudioStudio
                 
                 // Show live duration in status
                 double duration = (right - left) / pixelsPerSecond;
-                StatusText.Text = $"Выделение: {FormatTime(duration)}";
+                SetStatusText($"Выделение: {FormatTime(duration)}");
             }
         }
         
@@ -2687,7 +2698,7 @@ namespace AudioStudio
                     canvas.ReleaseMouseCapture();
                 }
                 double dur = Math.Abs(_selectionEndTime - _selectionStartTime);
-                StatusText.Text = $"Выделено: {FormatTime(dur)}";
+                SetStatusText($"Выделено: {FormatTime(dur)}");
                 return;
             }
             
@@ -2725,7 +2736,7 @@ namespace AudioStudio
                     UpdateSelectionUI();
                     EnableControls(true);
                     
-                    StatusText.Text = $"Выделено: {FormatTime(duration)}";
+                    SetStatusText($"Выделено: {FormatTime(duration)}");
                 }
             }
         }
@@ -2765,7 +2776,7 @@ namespace AudioStudio
                 isPlaying = false;
                 SetPlayIcon(false);
                 playTimer.Stop();
-                StatusText.Text = "Пауза";
+                SetStatusText("Пауза");
             }
             else
             {
@@ -2776,7 +2787,8 @@ namespace AudioStudio
                 isPlaying = true;
                 SetPlayIcon(true);
                 playTimer.Start();
-                StatusText.Text = "Воспроизведение...";
+                SetStatusText("Воспроизведение...");
+                StatusText.Foreground = new SolidColorBrush(Color.FromRgb(120, 129, 255));
             }
         }
 
@@ -2788,9 +2800,170 @@ namespace AudioStudio
             playTimer.Stop();
             currentTime = 0;
             DrawTimeline();
-            StatusText.Text = "Остановлено";
+            SetStatusText("Остановлено");
             CurrentTimeText.Text = "00:00";
             TotalTimeText.Text = FormatTime(GetTotalDuration());
+        }
+
+        private void LoopToggle_Click(object sender, RoutedEventArgs e)
+        {
+            _isLoopEnabled = !_isLoopEnabled;
+            _audio.SetLoopMode(_isLoopEnabled);
+            if (BtnLoop?.Content is FontAwesome.Sharp.IconBlock icon)
+                icon.Foreground = _isLoopEnabled ? new SolidColorBrush(Color.FromRgb(120, 129, 255)) : new SolidColorBrush(Color.FromRgb(170, 170, 170));
+            SetStatusText(_isLoopEnabled ? "Повтор включён" : "Повтор выключен");
+        }
+
+        private double _ringProgress;
+
+        private void SetRingProgress(double progress)
+        {
+            _ringProgress = Math.Clamp(progress, 0, 1);
+            if (RingProgress == null) return;
+            double r = 9;
+            double cx = 11;
+            double cy = 11;
+            double angle = Math.Max(0.001, _ringProgress * 360);
+            if (angle >= 360) angle = 359.999;
+            double rad = angle * Math.PI / 180;
+            double endX = cx + r * Math.Sin(rad);
+            double endY = cy - r * Math.Cos(rad);
+            var fig = new PathFigure { StartPoint = new Point(cx, cy - r), IsClosed = false };
+            bool isLarge = angle > 180;
+            fig.Segments.Add(new ArcSegment(
+                new Point(endX, endY),
+                new Size(r, r), 0, isLarge, SweepDirection.Clockwise, true));
+            var geo = new PathGeometry();
+            geo.Figures.Add(fig);
+            RingProgress.Data = geo;
+        }
+
+        // ========== Status bar helper: only Загрузка... / Готово ==========
+        private void SetStatusText(string text)
+        {
+            if (_isOperationActive)
+            {
+                // Status is controlled by dots timer during operations
+                return;
+            }
+            // All non-activity status text → just show "Готово"
+            StatusText.Text = "Готово";
+            StatusText.Foreground = new SolidColorBrush(Color.FromRgb(120, 129, 255));
+        }
+
+        // ========== Activity / Infotip with animated dots ==========
+        private void StartActivity(string description)
+        {
+            _currentOperationDescription = description;
+            _activityBaseText = description;
+            _dotsPhase = 0;
+            _ringProgress = 0;
+            StatusText.Foreground = new SolidColorBrush(Color.FromRgb(120, 129, 255));
+            StatusText.Text = description + ".";
+            _isOperationActive = true;
+            if (RingProgress != null)
+            {
+                RingProgress.Visibility = Visibility.Visible;
+                RingProgress.Stroke = new SolidColorBrush(Color.FromRgb(120, 129, 255));
+                SetRingProgress(0);
+            }
+            if (RingBg != null)
+                RingBg.Stroke = new SolidColorBrush(Color.FromRgb(85, 85, 85));
+
+            if (_dotsTimer == null)
+            {
+                _dotsTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+                _dotsTimer.Tick += (s, args) =>
+                {
+                    string[] dots = { ".", ". .", ". . ." };
+                    _dotsPhase = (_dotsPhase + 1) % 3;
+                    StatusText.Text = _activityBaseText + dots[_dotsPhase];
+                    StatusText.Foreground = new SolidColorBrush(Color.FromRgb(120, 129, 255));
+                    if (_isOperationActive)
+                    {
+                        _ringProgress = Math.Min(1, _ringProgress + 0.1);
+                        SetRingProgress(_ringProgress);
+                    }
+                };
+            }
+            _dotsTimer.Start();
+
+            if (ActivityPopup != null && ActivityPopup.IsOpen)
+            {
+                if (PopupTitle != null) PopupTitle.Text = description + ".";
+                if (PopupDescription != null) PopupDescription.Text = "";
+            }
+
+            if (_popupUpdateTimer == null)
+            {
+                _popupUpdateTimer = new DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(200)
+                };
+                _popupUpdateTimer.Tick += (s, args) =>
+                {
+                    if (ActivityPopup != null && ActivityPopup.IsOpen)
+                    {
+                        if (PopupTitle != null)
+                            PopupTitle.Text = StatusText?.Text ?? _activityBaseText + ".";
+                        if (PopupDescription != null && _isOperationActive)
+                            PopupDescription.Text = _currentOperationDescription;
+                    }
+                };
+            }
+            _popupUpdateTimer.Start();
+        }
+
+        private void StopActivity(string completionMessage = "")
+        {
+            _isOperationActive = false;
+            if (_dotsTimer != null)
+                _dotsTimer.Stop();
+            if (_popupUpdateTimer != null)
+                _popupUpdateTimer.Stop();
+            SetRingProgress(1);
+            StatusText.Foreground = new SolidColorBrush(Color.FromRgb(120, 129, 255));
+            StatusText.Text = "Готово";
+            if (string.IsNullOrEmpty(completionMessage))
+                completionMessage = _currentOperationDescription;
+            _currentOperationDescription = completionMessage;
+        }
+
+        private void UpdateActivityProgress(string detail)
+        {
+            _currentOperationDescription = detail;
+            if (ActivityPopup != null && ActivityPopup.IsOpen)
+            {
+                PopupTitle.Text = StatusText?.Text ?? _activityBaseText + ".";
+                PopupDescription.Text = detail;
+            }
+        }
+
+        private void SpinnerGrid_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            if (ActivityPopup == null) return;
+            if (ActivityPopup.IsOpen) return;
+            if (_isOperationActive)
+            {
+                PopupTitle.Text = StatusText?.Text ?? _activityBaseText + ".";
+                PopupDescription.Text = _currentOperationDescription;
+            }
+            else
+            {
+                PopupTitle.Text = "Готово";
+                PopupDescription.Text = string.IsNullOrEmpty(_currentOperationDescription) ? "" : _currentOperationDescription;
+            }
+            ActivityPopup.IsOpen = true;
+            if (_isOperationActive && _popupUpdateTimer != null && !_popupUpdateTimer.IsEnabled)
+                _popupUpdateTimer.Start();
+        }
+
+        private void SpinnerGrid_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            if (ActivityPopup != null)
+                ActivityPopup.IsOpen = false;
+            if (_popupUpdateTimer != null)
+                _popupUpdateTimer.Stop();
         }
 
         public void Cut_Click(object sender, RoutedEventArgs e)
@@ -2817,7 +2990,7 @@ namespace AudioStudio
             
             SelectionManager.ClearSelection();
             ClearSelection();
-            StatusText.Text = $"Вырезано: {FormatTime((double)length / (track.SampleRate * track.Channels))}";
+            SetStatusText($"Вырезано: {FormatTime((double)length / (track.SampleRate * track.Channels))}");
         }
 
         public void Copy_Click(object sender, RoutedEventArgs e)
@@ -2837,7 +3010,7 @@ namespace AudioStudio
             ClipboardChannels = track.Channels;
             ClipboardSampleRate = track.SampleRate;
 
-            StatusText.Text = $"Скопировано: {FormatTime((double)length / (ClipboardSampleRate * ClipboardChannels))}";
+            SetStatusText($"Скопировано: {FormatTime((double)length / (ClipboardSampleRate * ClipboardChannels))}");
         }
 
         public void Paste_Click(object sender, RoutedEventArgs e)
@@ -2862,7 +3035,7 @@ namespace AudioStudio
             _spectrogramCache.Remove(selectedTrackIndex);
             DrawTimeline();
             
-            StatusText.Text = $"Вставлено: {FormatTime((double)ClipboardData.Length / (ClipboardSampleRate * ClipboardChannels))}";
+            SetStatusText($"Вставлено: {FormatTime((double)ClipboardData.Length / (ClipboardSampleRate * ClipboardChannels))}");
         }
 
         public void Delete_Click(object sender, RoutedEventArgs e)
@@ -2888,7 +3061,7 @@ namespace AudioStudio
             
             SelectionManager.ClearSelection();
             ClearSelection();
-            StatusText.Text = "Удалено";
+            SetStatusText("Удалено");
         }
 
         public void Undo_Click(object sender, RoutedEventArgs e)
@@ -2901,7 +3074,7 @@ namespace AudioStudio
                 _waveformBitmaps.Clear();
                 DrawTimeline();
                 EnableControls(true);
-                StatusText.Text = $"Отменено: {_commandManager.LastUndoDescription}";
+                SetStatusText($"Отменено: {_commandManager.LastUndoDescription}");
             }
         }
 
@@ -2915,7 +3088,7 @@ namespace AudioStudio
                 _waveformBitmaps.Clear();
                 DrawTimeline();
                 EnableControls(true);
-                StatusText.Text = $"Повторено: {_commandManager.LastRedoDescription}";
+                SetStatusText($"Повторено: {_commandManager.LastRedoDescription}");
             }
         }
 
@@ -2923,13 +3096,13 @@ namespace AudioStudio
         {
             if (tracks.Count >= MaxTracks)
             {
-                StatusText.Text = $"Достигнут лимит треков ({MaxTracks})";
+                SetStatusText($"Достигнут лимит треков ({MaxTracks})");
                 return;
             }
             
             var command = new AddTrackCommand(this);
             _commandManager.Execute(command);
-            StatusText.Text = $"Добавлена дорожка {tracks.Count}";
+            SetStatusText($"Добавлена дорожка {tracks.Count}");
         }
 
         private void RemoveTrack_Click(object sender, RoutedEventArgs e)
@@ -2946,7 +3119,7 @@ namespace AudioStudio
             GC.Collect();
             GC.WaitForPendingFinalizers();
             
-            StatusText.Text = "Дорожка удалена";
+            SetStatusText("Дорожка удалена");
         }
 
         public void ClearTrack_Click(object sender, RoutedEventArgs e)
@@ -2964,21 +3137,21 @@ namespace AudioStudio
             _spectrogramCache.Remove(selectedTrackIndex);
             ClearSelection();
             DrawTimeline();
-            StatusText.Text = $"Трек {selectedTrackIndex + 1} очищен";
+            SetStatusText($"Трек {selectedTrackIndex + 1} очищен");
         }
 
         private void SaveProject_Click(object sender, RoutedEventArgs e)
         {
-            StatusText.Text = "Сохранение проекта...";
+            SetStatusText("Сохранение проекта...");
             MessageBox.Show("Функция сохранения проекта будет добавлена", "Сохранение", MessageBoxButton.OK, MessageBoxImage.Information);
-            StatusText.Text = "Готов к работе";
+            SetStatusText("Готово");
         }
 
         private void Export_Click(object sender, RoutedEventArgs e)
         {
-            StatusText.Text = "Экспорт...";
+            SetStatusText("Экспорт...");
             MessageBox.Show("Функция экспорта будет добавлена", "Экспорт", MessageBoxButton.OK, MessageBoxImage.Information);
-            StatusText.Text = "Готов к работе";
+            SetStatusText("Готово");
         }
 
         private void ZoomIn_Click(object sender, RoutedEventArgs e)
@@ -2986,7 +3159,7 @@ namespace AudioStudio
             pixelsPerSecond = Math.Min(500, pixelsPerSecond * 1.5);
             ZoomSlider.Value = pixelsPerSecond;
             DrawTimeline();
-            StatusText.Text = $"Масштаб: {pixelsPerSecond:F0} пикс/сек";
+            SetStatusText($"Масштаб: {pixelsPerSecond:F0} пикс/сек");
         }
 
         private void ZoomOut_Click(object sender, RoutedEventArgs e)
@@ -2994,7 +3167,7 @@ namespace AudioStudio
             pixelsPerSecond = Math.Max(5, pixelsPerSecond / 1.5);
             ZoomSlider.Value = pixelsPerSecond;
             DrawTimeline();
-            StatusText.Text = $"Масштаб: {pixelsPerSecond:F0} пикс/сек";
+            SetStatusText($"Масштаб: {pixelsPerSecond:F0} пикс/сек");
         }
 
         private void ResetZoom_Click(object sender, RoutedEventArgs e)
@@ -3002,7 +3175,7 @@ namespace AudioStudio
             pixelsPerSecond = 50;
             ZoomSlider.Value = 50;
             DrawTimeline();
-            StatusText.Text = "Масштаб сброшен";
+            SetStatusText("Масштаб сброшен");
         }
 
         private void ToggleView_Click(object sender, RoutedEventArgs e)
@@ -3017,7 +3190,7 @@ namespace AudioStudio
             _waveformPeaks.Clear();
             _waveformBitmaps.Clear();
             DrawTimeline();
-            StatusText.Text = _showSpectrogram ? "Режим: спектрограмма" : "Режим: waveform";
+            SetStatusText(_showSpectrogram ? "Режим: спектрограмма" : "Режим: waveform");
         }
 
         private void ZoomSlider_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -3160,7 +3333,7 @@ namespace AudioStudio
             {
                 if (!CheckNativeAudio())
                 {
-                    StatusText.Text = "⚠ Effects unavailable (DLL not found)";
+                    SetStatusText("⚠ Effects unavailable (DLL not found)");
                     return;
                 }
             }
@@ -3171,7 +3344,7 @@ namespace AudioStudio
             }
             catch (Exception ex)
             {
-                StatusText.Text = "⚠ Effect error: " + ex.Message;
+                SetStatusText("⚠ Effect error: " + ex.Message);
             }
         }
         
@@ -3194,7 +3367,7 @@ namespace AudioStudio
                 isPlaying = true;
                 BtnPlay.Content = "⏸";
                 playTimer.Start();
-                StatusText.Text = "▶ Preview (no effects - DLL missing)";
+                SetStatusText("▶ Preview (no effects - DLL missing)");
                 return;
             }
             
@@ -3217,11 +3390,11 @@ namespace AudioStudio
                 NativeAudio.ProcessBuffer(fx, previewSamples, previewSamples.Length);
                 NativeAudio.DeleteEffectChain(fx);
                 
-                StatusText.Text = "▶ Preview: " + track.Name;
+                SetStatusText("▶ Preview: " + track.Name);
             }
             catch (Exception ex)
             {
-                StatusText.Text = "Preview error: " + ex.Message;
+                SetStatusText("Preview error: " + ex.Message);
             }
             
             // Воспроизводим
@@ -3251,17 +3424,17 @@ namespace AudioStudio
 
                 RebuildMixer();
                 DrawTimeline();
-                StatusText.Text = "Effects applied to: " + track.Name;
+                SetStatusText("Effects applied to: " + track.Name);
             }
             catch (Exception ex)
             {
-                StatusText.Text = "⚠ Effect error: " + ex.Message;
+                SetStatusText("⚠ Effect error: " + ex.Message);
             }
         }
         
         private void Reset_Click(object sender, RoutedEventArgs e)
         {
-            StatusText.Text = "Готов к работе";
+            SetStatusText("Готово");
         }
 
         private string FormatTime(double seconds)
@@ -3289,7 +3462,7 @@ namespace AudioStudio
                 _trackIndexBeforeDrag = selectedTrackIndex;
                 _isDraggingFile = true;
                 
-                StatusText.Text = "Отпустите файл на трек для загрузки";
+                SetStatusText("Отпустите файл на трек для загрузки");
             }
             else
             {
@@ -3303,7 +3476,7 @@ namespace AudioStudio
             ClearDropIndicators();
             _isDraggingFile = false;
             HideTrackHighlight();
-            StatusText.Text = "Готов к работе";
+            SetStatusText("Готово");
         }
         
         // Preview обработчики - перехватывают drag дочерних элементов
@@ -3402,9 +3575,9 @@ namespace AudioStudio
             // Обновляем статус
             var track = tracks[trackIndex];
             if (track.Samples.Length > 0)
-                StatusText.Text = $"Трек {trackIndex + 1}: заменит \"{Path.GetFileName(track.SourceFile)}\"";
+                SetStatusText($"Трек {trackIndex + 1}: заменит \"{Path.GetFileName(track.SourceFile)}\"");
             else
-                StatusText.Text = $"Трек {trackIndex + 1}: пустой — загрузить";
+                SetStatusText($"Трек {trackIndex + 1}: пустой — загрузить");
         }
         
         private void HideTrackHighlight()
@@ -3442,9 +3615,9 @@ namespace AudioStudio
             UpdateTrackLabels();
             
             if (tracks[_dragHoveredTrackIndex].Samples.Length > 0)
-                StatusText.Text = $"Трек {_dragHoveredTrackIndex + 1}: заменит файл";
+                SetStatusText($"Трек {_dragHoveredTrackIndex + 1}: заменит файл");
             else
-                StatusText.Text = $"Трек {_dragHoveredTrackIndex + 1}: пустой";
+                SetStatusText($"Трек {_dragHoveredTrackIndex + 1}: пустой");
         }
         
         private void ClearDropIndicators()
@@ -3490,17 +3663,17 @@ namespace AudioStudio
                 if (tracks[clickedTrack].Samples.Length > 0)
                 {
                     var fileName = Path.GetFileName(tracks[clickedTrack].SourceFile ?? "");
-                    StatusText.Text = $"Выбран трек {clickedTrack + 1}: \"{fileName}\"";
+                    SetStatusText($"Выбран трек {clickedTrack + 1}: \"{fileName}\"");
                 }
                 else
                 {
-                    StatusText.Text = $"Выбран трек {clickedTrack + 1}: пустой";
+                    SetStatusText($"Выбран трек {clickedTrack + 1}: пустой");
                 }
             }
             else
             {
                 // Клик в пустое место (ниже треков) — просто сбрасываем выделение
-                StatusText.Text = "Выделение сброшено";
+                SetStatusText("Выделение сброшено");
                 UpdateTrackLabels();
             }
         }
@@ -3542,14 +3715,14 @@ namespace AudioStudio
                     if (AudioExtensions.Contains(ext))
                         LoadFileToTrackOnTrack(file, targetTrack);
                 }
-                StatusText.Text = $"Загружено в трек {targetTrack + 1}";
+                SetStatusText($"Загружено в трек {targetTrack + 1}");
             }
             // Обработка FileItem из TreeView (FL Studio ghost drag)
             else if (e.Data.GetDataPresent(typeof(FileItem)))
             {
                 var fileItem = (FileItem)e.Data.GetData(typeof(FileItem));
                 LoadFileToTrackOnTrack(fileItem.FullPath, targetTrack);
-                StatusText.Text = $"Загружено: {fileItem.Name} -> Трек {targetTrack + 1}";
+                SetStatusText($"Загружено: {fileItem.Name} -> Трек {targetTrack + 1}");
             }
             
             // ВОССТАНАВЛИВАЕМ выбор который был ДО drag
@@ -3608,9 +3781,9 @@ namespace AudioStudio
                     _trackIndexBeforeDrag = selectedTrackIndex;
                     
                     if (tracks[trackIndex].Samples.Length > 0)
-                        StatusText.Text = $"Трек {trackIndex + 1}: заменит \"{Path.GetFileName(tracks[trackIndex].SourceFile)}\"";
+                        SetStatusText($"Трек {trackIndex + 1}: заменит \"{Path.GetFileName(tracks[trackIndex].SourceFile)}\"");
                     else
-                        StatusText.Text = $"Трек {trackIndex + 1}: пустой — загрузить";
+                        SetStatusText($"Трек {trackIndex + 1}: пустой — загрузить");
                 }
             }
             else
@@ -3685,14 +3858,14 @@ namespace AudioStudio
                             Task.Run(() => LoadFileAsyncAndKeepHighlight(file, loadTrack, restoreTrack));
                         }
                     }
-                    StatusText.Text = $"Загружается в трек {targetTrack + 1}...";
+                    SetStatusText($"Загружается в трек {targetTrack + 1}...");
                 }
                 else if (e.Data.GetDataPresent(typeof(FileItem)))
                 {
                     var fileItem = (FileItem)e.Data.GetData(typeof(FileItem));
                     int restoreTrack = previousTrack;
                     Task.Run(() => LoadFileAsyncAndKeepHighlight(fileItem.FullPath, targetTrack, restoreTrack));
-                    StatusText.Text = $"Загружается: {fileItem.Name} -> Трек {targetTrack + 1}";
+                    SetStatusText($"Загружается: {fileItem.Name} -> Трек {targetTrack + 1}");
                 }
             }
             

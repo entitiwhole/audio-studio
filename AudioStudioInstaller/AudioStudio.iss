@@ -1,50 +1,56 @@
-; BF^Studio Installer Script
+; AudioStudio Installer Script
 ; Inno Setup 6
 
-#define MyAppName "BF^Studio"
-#define MyAppVersion "1.0.2"
+#define MyAppName "AudioStudio"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "PRYTEK Vision"
-#define SourcePath "E:\Atest1.0\AudioStudio\AudioStudio\bin\Release\App"
+#define MyAppURL "https://github.com/entitiwhole/audio-studio"
+#define SourcePath "..\AudioStudio\bin\Release\net10.0-windows\win-x64"
 
 [Setup]
-AppId=7C5E1F2A-8B4D-4E3F-A2B1-C9D0E5F6A7B3
+AppId={{7C5E1F2A-8B4D-4E3F-A2B1-C9D0E5F6A7B4}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={pf}\BF^Studio
+AppPublisherURL={#MyAppURL}
+DefaultDirName={autopf}\{#MyAppName}
 DisableProgramGroupPage=yes
-DefaultGroupName=BF^Studio
+DefaultGroupName={#MyAppName}
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
-OutputDir=.\Output
-OutputBaseFilename=BFStudio-Setup-{#MyAppVersion}
+OutputDir=Output
+OutputBaseFilename={#MyAppName}-Setup-{#MyAppVersion}
 PrivilegesRequired=admin
-UninstallDisplayIcon={app}\BFStudio.exe
-SetupIconFile=E:\Atest1.0\AudioStudio\AudioStudio\hd_067e60e1d37959fea8c10910f1bec3f4-_1_-1.ico
-VersionInfoVersion=1.0.0.0
-VersionInfoCompany=PRYTEK Vision
-VersionInfoDescription=BF^Studio Installer
-VersionInfoProductName=BF^Studio
-VersionInfoProductVersion=1.0.0.0
+UninstallDisplayIcon={app}\{#MyAppName}.exe
+VersionInfoVersion={#MyAppVersion}.0
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoDescription={#MyAppName} Installer
+VersionInfoProductName={#MyAppName}
+VersionInfoProductVersion={#MyAppVersion}.0
+SetupIconFile=app.ico
+AllowNoIcons=yes
+DisableWelcomePage=no
+DisableDirPage=no
 
 [Languages]
-Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "startmenu"; Description: "Создать ярлык в меню Пуск"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "{#SourcePath}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; All application files
+Source: "{#SourcePath}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "unins000.exe,unins000.dat,version.txt,BUILD_*.txt"
 
 [Icons]
-Name: "{autoprograms}\BF^Studio"; Filename: "{app}\BFStudio.exe"; Tasks: startmenu
-Name: "{autodesktop}\BF^Studio"; Filename: "{app}\BFStudio.exe"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppName}.exe"; WorkingDir: "{app}"; Tasks: startmenu
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppName}.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\BFStudio.exe"; Description: "Запустить BF^Studio"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppName}.exe"; Description: "Запустить {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

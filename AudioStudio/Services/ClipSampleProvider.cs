@@ -17,14 +17,12 @@ public class ClipSampleProvider : ISampleProvider
     /// Время старта клипа на таймлайне (секунды)
     /// </summary>
     public float StartTime { get; set; }
+    public bool IsLooping { get; set; }
     
     public ClipSampleProvider(float[] samples, int sampleRate, int channels, float startTime = 0)
     {
-        // ВАЖНО: создаём копию массива
         _samples = samples.ToArray();
         StartTime = startTime;
-        
-        // ВСЕГДА используем IeeeFloat формат для NAudio
         WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
     }
     
@@ -32,7 +30,14 @@ public class ClipSampleProvider : ISampleProvider
     {
         if (_position >= _samples.Length)
         {
-            return 0;
+            if (IsLooping)
+            {
+                _position = 0;
+            }
+            else
+            {
+                return 0;
+            }
         }
         
         int available = _samples.Length - _position;
