@@ -1,3 +1,0 @@
-E:\Atest1.0\AudioStudio\AudioStudio\publish\AudioStudio.exe
-E:\Atest1.0\AudioStudio\AudioStudio\publish\AudioStudio.deps.json
-E:\Atest1.0\AudioStudio\AudioStudio\publish\AudioStudio.runtimeconfig.json
