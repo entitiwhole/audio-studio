@@ -1,3 +1,4 @@
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using System.Diagnostics;
@@ -6,7 +7,7 @@ namespace AudioStudio;
 
 public class AudioEngine
 {
-    private WaveOutEvent? _waveOut;
+    private WasapiOut? _waveOut;
     private MixingSampleProvider? _mixer;
     
     // Отдельный провайдер для каждого клипа
@@ -17,13 +18,13 @@ public class AudioEngine
     private readonly int _masterChannels = 2;
     
     // Источник истины для времени
-    public float CurrentTime { get; private set; }
+    public double CurrentTime { get; private set; }
     
     private readonly Stopwatch _clock = new();
     private float _seekTime;
     
     public event Action? OnPlaybackStopped;
-    public event Action<float>? OnTimeChanged;
+        public event Action<double>? OnTimeChanged;
 
     public void LoadClips(List<AudioClipModel> clips)
     {
@@ -81,7 +82,7 @@ public class AudioEngine
             _mixer.AddMixerInput(offset);
         }
 
-        _waveOut = new WaveOutEvent { DesiredLatency = 100 };
+        _waveOut = new WasapiOut(AudioClientShareMode.Shared, 50);
         _waveOut.Init(_mixer);
         
         _waveOut.PlaybackStopped += (s, e) =>
@@ -147,7 +148,7 @@ public class AudioEngine
     {
         if (_clock.IsRunning)
         {
-            CurrentTime = _seekTime + (float)_clock.Elapsed.TotalSeconds;
+            CurrentTime = _seekTime + _clock.Elapsed.TotalSeconds;
             OnTimeChanged?.Invoke(CurrentTime);
         }
     }
@@ -189,7 +190,7 @@ public class AudioEngine
         _mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(_masterSampleRate, _masterChannels));
         _mixer.AddMixerInput(formattedProvider);
         
-        _waveOut = new WaveOutEvent { DesiredLatency = 100 };
+        _waveOut = new WasapiOut(AudioClientShareMode.Shared, 50);
         _waveOut.Init(_mixer);
         
         _waveOut.PlaybackStopped += (s, e) =>

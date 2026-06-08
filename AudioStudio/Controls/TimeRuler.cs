@@ -3,81 +3,58 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using AudioStudio.Models;
 
 namespace AudioStudio.Controls
 {
-    /// <summary>
-    /// Временная линейка с отображением выделения
-    /// Показывает метки времени и подсветку выделенного диапазона
-    /// </summary>
     public class TimeRuler : Canvas
     {
-        // Фоновые деления
-        private readonly StackPanel _tickMarks;
-        
-        // Подсветка выделенного диапазона
+        private readonly Canvas _ticksContainer;
         private readonly Rectangle _highlightRect;
-        
-        // Метки времени
         private readonly TextBlock _startTimeLabel;
         private readonly TextBlock _endTimeLabel;
         private readonly TextBlock _durationLabel;
-        
-        // Маркеры начала и конца
         private readonly Line _startMarker;
         private readonly Line _endMarker;
-        
-        // Текущие деления
-        private readonly Stack<Line> _majorTicks = new();
-        private readonly Stack<TextBlock> _tickLabels = new();
-        
-        // Привязка к pixelsPerSecond
+
         public double PixelsPerSecond { get; set; } = 50;
-        
-        // Смещение линейки вправо (ширина лейбла трека)
         public double Offset { get; set; }
-        
-        // Горизонтальный скролл (синхрон с waveform)
         public double ScrollOffset { get; set; }
-        
-        // Общая длительность всех треков (для продления делений)
         public double TotalDuration { get; set; }
-        
+        public int Bpm { get; set; } = 128;
+
         public double SelectionStart
         {
             get => (double)GetValue(SelectionStartProperty);
             set => SetValue(SelectionStartProperty, value);
         }
-        
+
         public double SelectionEnd
         {
             get => (double)GetValue(SelectionEndProperty);
             set => SetValue(SelectionEndProperty, value);
         }
-        
+
         public static readonly DependencyProperty SelectionStartProperty =
-            DependencyProperty.Register(nameof(SelectionStart), typeof(double), 
+            DependencyProperty.Register(nameof(SelectionStart), typeof(double),
                 typeof(TimeRuler), new PropertyMetadata(-1.0, OnSelectionChanged));
-                
+
         public static readonly DependencyProperty SelectionEndProperty =
-            DependencyProperty.Register(nameof(SelectionEnd), typeof(double), 
+            DependencyProperty.Register(nameof(SelectionEnd), typeof(double),
                 typeof(TimeRuler), new PropertyMetadata(-1.0, OnSelectionChanged));
-        
+
         private static void OnSelectionChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             if (d is TimeRuler ruler)
-            {
                 ruler.UpdateSelectionHighlight();
-            }
         }
-        
+
         public TimeRuler()
         {
             Height = 24;
             ClipToBounds = true;
             Background = new SolidColorBrush(Color.FromRgb(35, 35, 40));
-            
-            // Подсветка выделенного диапазона на линейке
+
             _highlightRect = new Rectangle
             {
                 Fill = new SolidColorBrush(Color.FromArgb(80, 120, 129, 255)),
@@ -88,8 +65,7 @@ namespace AudioStudio.Controls
                 Visibility = Visibility.Collapsed
             };
             Children.Add(_highlightRect);
-            
-            // Маркер начала
+
             _startMarker = new Line
             {
                 Stroke = new SolidColorBrush(Color.FromRgb(180, 180, 255)),
@@ -99,8 +75,7 @@ namespace AudioStudio.Controls
                 Visibility = Visibility.Collapsed
             };
             Children.Add(_startMarker);
-            
-            // Маркер конца
+
             _endMarker = new Line
             {
                 Stroke = new SolidColorBrush(Color.FromRgb(180, 180, 255)),
@@ -110,8 +85,7 @@ namespace AudioStudio.Controls
                 Visibility = Visibility.Collapsed
             };
             Children.Add(_endMarker);
-            
-            // Метка начала
+
             _startTimeLabel = new TextBlock
             {
                 Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 255)),
@@ -120,8 +94,7 @@ namespace AudioStudio.Controls
                 Visibility = Visibility.Collapsed
             };
             Children.Add(_startTimeLabel);
-            
-            // Метка конца
+
             _endTimeLabel = new TextBlock
             {
                 Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 255)),
@@ -130,8 +103,7 @@ namespace AudioStudio.Controls
                 Visibility = Visibility.Collapsed
             };
             Children.Add(_endTimeLabel);
-            
-            // Метка длительности
+
             _durationLabel = new TextBlock
             {
                 Foreground = new SolidColorBrush(Color.FromRgb(120, 129, 255)),
@@ -141,90 +113,74 @@ namespace AudioStudio.Controls
                 Visibility = Visibility.Collapsed
             };
             Children.Add(_durationLabel);
-            
-            // Панель для делений
-            _tickMarks = new StackPanel
-            {
-                Orientation = Orientation.Horizontal
-            };
-            
-            // Подписываемся на изменение размера
-            SizeChanged += (s, e) => UpdateTicks();
+
+            _ticksContainer = new Canvas { ClipToBounds = false };
+            Children.Add(_ticksContainer);
+
+            SizeChanged += (_, _) => UpdateTicks();
         }
-        
-        /// <summary>
-        /// Обновить деления на линейке
-        /// </summary>
+
         public void UpdateTicks()
         {
-            // Очищаем старые деления
-            foreach (var tick in _majorTicks)
-            {
-                Children.Remove(tick);
-            }
-            _majorTicks.Clear();
-            
-            foreach (var label in _tickLabels)
-            {
-                Children.Remove(label);
-            }
-            _tickLabels.Clear();
-            
+            _ticksContainer.Children.Clear();
+
             if (ActualWidth <= 0 || PixelsPerSecond <= 0) return;
-            
-            // Определяем интервал делений в зависимости от масштаба
-            double interval;
-            if (PixelsPerSecond >= 200)
-                interval = 0.1; // 100ms
-            else if (PixelsPerSecond >= 100)
-                interval = 0.5; // 500ms
-            else if (PixelsPerSecond >= 50)
-                interval = 1; // 1 second
-            else if (PixelsPerSecond >= 20)
-                interval = 5; // 5 seconds
-            else
-                interval = 10; // 10 seconds
-            
-            double totalTime = Math.Max(TotalDuration, ActualWidth / PixelsPerSecond);
-            
-            for (double t = 0; t <= totalTime; t += interval)
+
+            var grid = TimelineGrid.Compute(PixelsPerSecond, Bpm);
+            double scrollTime = Math.Max(0, ScrollOffset / PixelsPerSecond);
+            double visibleEnd = scrollTime + ActualWidth / PixelsPerSecond;
+
+            int i0 = TimelineGrid.StartIndex(scrollTime, grid.MinorStepSeconds);
+            int i1 = TimelineGrid.EndIndex(visibleEnd, grid.MinorStepSeconds);
+
+            var majorBrush = new SolidColorBrush(Color.FromArgb(140, 200, 200, 200));
+            var minorBrush = new SolidColorBrush(Color.FromArgb(70, 150, 150, 150));
+            var labelBrush = new SolidColorBrush(Color.FromArgb(180, 170, 170, 170));
+
+            const double labelWidthEstimate = 52;
+
+            for (int i = i0; i <= i1; i++)
             {
-                double x = t * PixelsPerSecond + Offset - ScrollOffset;
-                
-                // Большое деление
+                double t = i * grid.MinorStepSeconds;
+                double x = t * PixelsPerSecond;
+
+                bool isMajor = grid.MinorPerMajor > 0 && i % grid.MinorPerMajor == 0;
+                bool isLabel = grid.MinorPerLabel > 0 && i % grid.MinorPerLabel == 0;
+
                 var tick = new Line
                 {
                     X1 = x,
                     X2 = x,
-                    Y1 = Height - 8,
+                    Y1 = Height - (isMajor ? 13 : 7),
                     Y2 = Height,
-                    Stroke = new SolidColorBrush(Color.FromArgb(100, 150, 150, 150)),
-                    StrokeThickness = 1
+                    Stroke = isMajor ? majorBrush : minorBrush,
+                    StrokeThickness = isMajor ? 1.5 : 0.5
                 };
-                Children.Add(tick);
-                _majorTicks.Push(tick);
-                
-                // Метка времени
-                if (t >= 0)
+                _ticksContainer.Children.Add(tick);
+
+                if (!isLabel) continue;
+
+                double screenX = x - ScrollOffset + Offset;
+                if (screenX < -4 || screenX > ActualWidth - labelWidthEstimate)
+                    continue;
+
+                var label = new TextBlock
                 {
-                    var label = new TextBlock
-                    {
-                        Text = FormatTimeShort(t),
-                        Foreground = new SolidColorBrush(Color.FromArgb(150, 150, 150, 150)),
-                        FontSize = 8,
-                        FontFamily = new FontFamily("Consolas")
-                    };
-                    Canvas.SetLeft(label, x + 2);
-                    Canvas.SetTop(label, 4);
-                    Children.Add(label);
-                    _tickLabels.Push(label);
-                }
+                    Text = TimelineGrid.FormatLabel(t, grid.FractionDigits),
+                    Foreground = labelBrush,
+                    FontSize = 9,
+                    FontFamily = new FontFamily("Consolas")
+                };
+                Canvas.SetLeft(label, x + 2);
+                Canvas.SetTop(label, 2);
+                _ticksContainer.Children.Add(label);
             }
+
+            Canvas.SetLeft(_ticksContainer, Offset - ScrollOffset);
         }
-        
-        /// <summary>
-        /// Обновить подсветку выделения
-        /// </summary>
+
+        public void RefreshScroll() => UpdateTicks();
+
         public void UpdateSelectionHighlight()
         {
             if (SelectionStart < 0 || SelectionEnd < 0 || SelectionEnd <= SelectionStart)
@@ -237,59 +193,44 @@ namespace AudioStudio.Controls
                 _durationLabel.Visibility = Visibility.Collapsed;
                 return;
             }
-            
+
             double startX = SelectionStart * PixelsPerSecond + Offset - ScrollOffset;
             double endX = SelectionEnd * PixelsPerSecond + Offset - ScrollOffset;
             double width = endX - startX;
-            
+
             if (width < 2) return;
-            
-            // Подсветка на линейке
+
             Canvas.SetLeft(_highlightRect, startX);
             _highlightRect.Width = width;
             _highlightRect.Visibility = Visibility.Visible;
-            
-            // Маркер начала
+
             _startMarker.X1 = startX;
             _startMarker.X2 = startX;
             _startMarker.Visibility = Visibility.Visible;
-            
-            // Маркер конца
+
             _endMarker.X1 = endX;
             _endMarker.X2 = endX;
             _endMarker.Visibility = Visibility.Visible;
-            
-            // Метка начала
-            _startTimeLabel.Text = FormatTimeShort(SelectionStart);
+
+            _startTimeLabel.Text = FormatTime(SelectionStart);
             Canvas.SetLeft(_startTimeLabel, Math.Max(0, startX + 2));
             Canvas.SetTop(_startTimeLabel, 2);
             _startTimeLabel.Visibility = Visibility.Visible;
-            
-            // Метка конца
-            _endTimeLabel.Text = FormatTimeShort(SelectionEnd);
+
+            _endTimeLabel.Text = FormatTime(SelectionEnd);
             double endLabelX = endX - 40;
             Canvas.SetLeft(_endTimeLabel, Math.Max(0, endLabelX));
             Canvas.SetTop(_endTimeLabel, 2);
             _endTimeLabel.Visibility = Visibility.Visible;
-            
-            // Длительность посередине
+
             _durationLabel.Text = FormatTime(SelectionEnd - SelectionStart);
-            double labelWidth = 50;
+            const double labelWidth = 50;
             Canvas.SetLeft(_durationLabel, startX + (width - labelWidth) / 2);
             Canvas.SetTop(_durationLabel, 14);
             _durationLabel.Visibility = Visibility.Visible;
         }
-        
-        private string FormatTimeShort(double seconds)
-        {
-            int min = (int)(seconds / 60);
-            int sec = (int)(seconds % 60);
-            if (min > 0)
-                return $"{min}:{sec:D2}";
-            return $"{sec}s";
-        }
-        
-        private string FormatTime(double seconds)
+
+        private static string FormatTime(double seconds)
         {
             int min = (int)(seconds / 60);
             int sec = (int)(seconds % 60);

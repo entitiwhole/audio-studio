@@ -20,5 +20,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Context notes (opencode + Obsidian)
+_context/
+.obsidian/
+
 # Installer source (not needed by users)
 AudioStudioInstaller/

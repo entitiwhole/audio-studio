@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 
 namespace AudioStudio.ContextMenus
 {
@@ -9,8 +10,13 @@ namespace AudioStudio.ContextMenus
     {
         private readonly Popup _popup;
         private readonly StackPanel _panel;
+        private readonly TextBlock _hintsHeader;
+        private readonly TextBlock _emptyTrackHeader;
         private MainWindow? _mainWindow;
         private bool _isOpen;
+
+        private const string ClipHints = "Ctrl+ЛКМ — выделить область на записи";
+        private const string EmptyTrackHints = "Вставить вырезанную или скопированную запись";
 
         public AudioContextMenu()
         {
@@ -24,28 +30,48 @@ namespace AudioStudio.ContextMenus
             var itemStyle = rd["MenuItemStyle"] as Style;
             var sepStyle = rd["MenuSepStyle"] as Style;
 
-            _panel = new StackPanel { MinWidth = 180, Background = null };
+            _panel = new StackPanel { MinWidth = 220, Background = null };
 
-            _panel.Children.Add(MakeItem("✂  Вырезать", "Cut", itemStyle));
-            _panel.Children.Add(MakeItem("📄  Копировать", "Copy", itemStyle));
-            _panel.Children.Add(MakeItem("📋  Вставить", "Paste", itemStyle));
+            _hintsHeader = new TextBlock
+            {
+                Foreground = new SolidColorBrush(Color.FromRgb(140, 140, 150)),
+                FontSize = 9,
+                Margin = new Thickness(12, 8, 12, 4),
+                TextWrapping = TextWrapping.Wrap,
+                Visibility = Visibility.Collapsed
+            };
+            _panel.Children.Add(_hintsHeader);
+
+            _emptyTrackHeader = new TextBlock
+            {
+                Foreground = new SolidColorBrush(Color.FromRgb(140, 200, 140)),
+                FontSize = 9,
+                Margin = new Thickness(12, 8, 12, 4),
+                TextWrapping = TextWrapping.Wrap,
+                Visibility = Visibility.Collapsed
+            };
+            _panel.Children.Add(_emptyTrackHeader);
+
+            _panel.Children.Add(CreateItem("✂  Вырезать", "Cut", "Ctrl+X", itemStyle));
+            _panel.Children.Add(CreateItem("📄  Копировать", "Copy", "Ctrl+C", itemStyle));
+            _panel.Children.Add(CreateItem("📋  Вставить", "Paste", "Ctrl+V", itemStyle));
             _panel.Children.Add(new Separator { Style = sepStyle });
-            _panel.Children.Add(MakeItem("🗑  Удалить", "Delete", itemStyle));
-            _panel.Children.Add(MakeItem("🧹  Очистить трек", "ClearTrack", itemStyle));
+            _panel.Children.Add(CreateItem("🗑  Удалить", "Delete", "Del", itemStyle));
+            _panel.Children.Add(CreateItem("🧹  Очистить трек", "ClearTrack", null, itemStyle));
             _panel.Children.Add(new Separator { Style = sepStyle });
-            _panel.Children.Add(MakeItem("Выделить всё", "SelectAll", itemStyle));
-            _panel.Children.Add(MakeItem("Снять выделение", "ClearSelection", itemStyle));
+            _panel.Children.Add(CreateItem("Выделить всё", "SelectAll", "Ctrl+D", itemStyle));
+            _panel.Children.Add(CreateItem("Снять выделение", "ClearSelection", null, itemStyle));
             _panel.Children.Add(new Separator { Style = sepStyle });
-            _panel.Children.Add(MakeItem("↶  Отменить", "Undo", itemStyle));
-            _panel.Children.Add(MakeItem("↷  Повторить", "Redo", itemStyle));
+            _panel.Children.Add(CreateItem("↶  Отменить", "Undo", "Ctrl+Z", itemStyle));
+            _panel.Children.Add(CreateItem("↷  Повторить", "Redo", "Ctrl+Y", itemStyle));
 
             var border = new Border
             {
-                Background = System.Windows.Media.Brushes.Transparent,
+                Background = Brushes.Transparent,
                 Child = new Border
                 {
-                    Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(45, 45, 48)),
-                    BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(62, 62, 66)),
+                    Background = new SolidColorBrush(Color.FromRgb(45, 45, 48)),
+                    BorderBrush = new SolidColorBrush(Color.FromRgb(62, 62, 66)),
                     BorderThickness = new Thickness(1),
                     CornerRadius = new CornerRadius(4),
                     Child = _panel
@@ -62,11 +88,38 @@ namespace AudioStudio.ContextMenus
             };
         }
 
-        private Button MakeItem(string text, string tag, Style? style)
+        private Button CreateItem(string text, string tag, string? hotkey, Style? style)
         {
+            var grid = new Grid { Margin = new Thickness(0) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            if (hotkey != null)
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var label = new TextBlock
+            {
+                Text = text,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(label, 0);
+            grid.Children.Add(label);
+
+            if (hotkey != null)
+            {
+                var hk = new TextBlock
+                {
+                    Text = hotkey,
+                    Foreground = new SolidColorBrush(Color.FromRgb(120, 129, 255)),
+                    FontSize = 10,
+                    Margin = new Thickness(12, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(hk, 1);
+                grid.Children.Add(hk);
+            }
+
             var btn = new Button
             {
-                Content = text,
+                Content = grid,
                 Tag = tag,
                 Style = style
             };
@@ -90,6 +143,18 @@ namespace AudioStudio.ContextMenus
             UpdateMenuState();
         }
 
+        public void SetClipHintsVisible(bool visible)
+        {
+            _hintsHeader.Text = ClipHints;
+            _hintsHeader.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        public void SetEmptyTrackMode(bool visible)
+        {
+            _emptyTrackHeader.Text = EmptyTrackHints;
+            _emptyTrackHeader.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        }
+
         public void UpdateMenuState()
         {
             if (_mainWindow == null) return;
@@ -101,9 +166,11 @@ namespace AudioStudio.ContextMenus
                     {
                         "Cut" => _mainWindow.HasSelection(),
                         "Copy" => _mainWindow.HasSelection(),
-                        "Paste" => _mainWindow.HasClipboard(),
-                        "Delete" => _mainWindow.HasSelection(),
-                        "ClearTrack" => true,
+                        "Paste" => _mainWindow.HasClipboard(), // always when clipboard has data
+                        "Delete" => _mainWindow.HasSelection()
+                            || _mainWindow.HasSelectedPlaylistClip(),
+                        "ClearTrack" => _mainWindow.HasSelectedPlaylistClip()
+                            || _mainWindow.FocusedClipIndex >= 0,
                         "Undo" => _mainWindow.CommandManager.CanUndo,
                         "Redo" => _mainWindow.CommandManager.CanRedo,
                         _ => true

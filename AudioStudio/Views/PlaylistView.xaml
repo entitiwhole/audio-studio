@@ -1,0 +1,23 @@
+<UserControl x:Class="AudioStudio.Views.PlaylistView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer x:Name="MainScroller"
+                  HorizontalScrollBarVisibility="Auto"
+                  VerticalScrollBarVisibility="Auto"
+                  Background="#1E1E1E"
+                  ScrollChanged="OnScrollChanged">
+        <Grid x:Name="ContentGrid" ClipToBounds="True">
+            <Canvas x:Name="GridLayer"/>
+            <Canvas x:Name="TrackBgLayer"/>
+            <Canvas x:Name="ClipLayer"
+                    Background="Transparent"
+                    MouseMove="ClipLayer_MouseMove"
+                    MouseUp="ClipLayer_MouseUp"
+                    MouseLeave="ClipLayer_MouseLeave"
+                    MouseLeftButtonDown="ClipLayer_MouseLeftButtonDown"
+                    MouseRightButtonDown="ClipLayer_MouseRightButtonDown"/>
+            <Canvas x:Name="SelectionLayer" IsHitTestVisible="False"/>
+            <Canvas x:Name="PlayheadLayer" IsHitTestVisible="True"/>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

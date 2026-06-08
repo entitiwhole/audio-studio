@@ -332,7 +332,6 @@ namespace AudioStudio.Commands
             _addedTrack = _mainWindow.CreateEmptyTrackInternal(_mainWindow.Tracks.Count);
             _mainWindow.TracksInternal.Add(_addedTrack);
             _mainWindow.DrawTimeline();
-            _mainWindow.UpdateTrackLabels();
         }
 
         public void Undo()
@@ -342,7 +341,6 @@ namespace AudioStudio.Commands
                 _mainWindow.TracksInternal.Remove(_addedTrack);
                 _addedTrack.Samples = Array.Empty<float>();
                 _mainWindow.DrawTimeline();
-                _mainWindow.UpdateTrackLabels();
             }
         }
     }
@@ -373,7 +371,6 @@ namespace AudioStudio.Commands
                 _removedIndex = _trackIndex;
                 _mainWindow.TracksInternal.RemoveAt(_trackIndex);
                 _mainWindow.DrawTimeline();
-                _mainWindow.UpdateTrackLabels();
             }
         }
 
@@ -383,7 +380,6 @@ namespace AudioStudio.Commands
             {
                 _mainWindow.TracksInternal.Insert(_removedIndex, _removedTrack);
                 _mainWindow.DrawTimeline();
-                _mainWindow.UpdateTrackLabels();
             }
         }
     }

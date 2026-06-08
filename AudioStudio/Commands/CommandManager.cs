@@ -23,13 +23,12 @@ namespace AudioStudio.Commands
         public string? LastUndoDescription => _undoStack.Count > 0 ? _undoStack.Peek().Description : null;
         public string? LastRedoDescription => _redoStack.Count > 0 ? _redoStack.Peek().Description : null;
 
-        public void Execute(IAudioCommand command)
+        /// <summary>UI уже применил изменение — только записать в историю.</summary>
+        public void Record(IAudioCommand command)
         {
-            command.Execute();
             _undoStack.Push(command);
             _redoStack.Clear();
 
-            // Limit history size
             while (_undoStack.Count > MaxHistory)
             {
                 var tempList = new List<IAudioCommand>(_undoStack);
@@ -40,6 +39,12 @@ namespace AudioStudio.Commands
             }
 
             HistoryChanged?.Invoke();
+        }
+
+        public void Execute(IAudioCommand command)
+        {
+            command.Execute();
+            Record(command);
         }
 
         public void Undo()

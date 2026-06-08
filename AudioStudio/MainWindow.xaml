@@ -4,6 +4,7 @@
         xmlns:local="clr-namespace:AudioStudio"
         xmlns:controls="clr-namespace:AudioStudio.Controls"
         xmlns:fa="clr-namespace:FontAwesome.Sharp;assembly=FontAwesome.Sharp"
+        xmlns:views="clr-namespace:AudioStudio.Views"
         Title="BF^Studio" 
         Height="800" Width="1400"
         MinHeight="1" MinWidth="1100"
@@ -22,33 +23,29 @@
     <Window.Resources>
         <Style x:Key="MenuButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#FFAAAAAA"/>
+            <Setter Property="Foreground" Value="#FF9A9AA8"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="12,6"/>
-            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" 
-                                CornerRadius="3" Padding="{TemplateBinding Padding}">
+                        <Border x:Name="border" Background="Transparent" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#FF3E3E42"/>
-                                <Setter Property="Foreground" Value="White"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
         <Style x:Key="TransportButton" TargetType="Button">
-            <Setter Property="Background" Value="#FF3E3E42"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background" Value="#FF3A3A42"/>
+            <Setter Property="Foreground" Value="#FFDDDDDD"/>
+            <Setter Property="BorderBrush" Value="#FF4E4E58"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Width" Value="40"/>
             <Setter Property="Height" Value="32"/>
             <Setter Property="FontSize" Value="14"/>
@@ -56,16 +53,23 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" 
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="4" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#FF505054"/>
+                                <Setter TargetName="border" Property="Background" Value="#FF484852"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FF7881FF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FF32323A"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.5"/>
+                                <Setter Property="Opacity" Value="0.4"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -73,19 +77,86 @@
             </Setter>
         </Style>
 
-        <Style x:Key="PlayButton" TargetType="Button" BasedOn="{StaticResource TransportButton}">
-            <Setter Property="Background" Value="#FF4CAF50"/>
-            <Setter Property="FontSize" Value="16"/>
+        <Style x:Key="PlayButton" TargetType="Button">
+            <Setter Property="Background" Value="#FF7881FF"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#FF8E97FF"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Width" Value="42"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4" Padding="0">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FF929BFF"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FFA8AFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FF626BDB"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FF7881FF"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Background" Value="#FF4A4A54"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FF555560"/>
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
-        <Style x:Key="StopButton" TargetType="Button" BasedOn="{StaticResource TransportButton}">
-            <Setter Property="Background" Value="#FFF44336"/>
+        <Style x:Key="StopButton" TargetType="Button">
+            <Setter Property="Background" Value="#FF383840"/>
+            <Setter Property="Foreground" Value="#FFCCCCCC"/>
+            <Setter Property="BorderBrush" Value="#FF5A5A66"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Width" Value="40"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4" Padding="0">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FF44444E"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FF7881FF"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FF2E2E36"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FF626BDB"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="ToolButton" TargetType="Button">
-            <Setter Property="Background" Value="#FF3E3E42"/>
+            <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="#FFAAAAAA"/>
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Width" Value="32"/>
             <Setter Property="Height" Value="28"/>
             <Setter Property="FontSize" Value="12"/>
@@ -93,17 +164,25 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" 
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="3">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#FF505054"/>
+                                <Setter TargetName="border" Property="Background" Value="#FF3E3E46"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FF55556A"/>
                                 <Setter Property="Foreground" Value="White"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#FF007ACC"/>
+                                <Setter TargetName="border" Property="Background" Value="#FF4A4A66"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FF7881FF"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.35"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -112,25 +191,75 @@
         </Style>
 
         <Style x:Key="AccentButton" TargetType="Button">
-            <Setter Property="Background" Value="#FF7881FF"/>
+            <Setter Property="Background" Value="#FF5E67E0"/>
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="BorderBrush" Value="#FF7881FF"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="12,6"/>
             <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" 
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="4" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#FFFFB74D"/>
+                                <Setter TargetName="border" Property="Background" Value="#FF7881FF"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FF929BFF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FF525AD4"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FF626BDB"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.5"/>
+                                <Setter TargetName="border" Property="Background" Value="#FF3E3E48"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FF4A4A54"/>
+                                <Setter Property="Foreground" Value="#FF888888"/>
+                                <Setter Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ToolbarButton" TargetType="Button">
+            <Setter Property="Background" Value="#FF38383E"/>
+            <Setter Property="Foreground" Value="#FFBBBBBB"/>
+            <Setter Property="BorderBrush" Value="#FF4A4A52"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FF44444C"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FF6B72B8"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FF32323A"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FF7881FF"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -179,7 +308,8 @@
                                 <Setter TargetName="border" Property="Background" Value="#FF3E3E42"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#FF007ACC"/>
+                                <Setter TargetName="border" Property="Background" Value="#FF4A4F7A"/>
+                                <Setter Property="Foreground" Value="White"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -187,24 +317,36 @@
             </Setter>
         </Style>
 
+        <Style x:Key="WindowChromeIcon" TargetType="fa:IconBlock">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+        </Style>
+
         <Style x:Key="WindowButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="#FFAAAAAA"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Width" Value="46"/>
+            <Setter Property="Width" Value="36"/>
             <Setter Property="Height" Value="32"/>
-            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" Background="{TemplateBinding Background}">
+                        <Border x:Name="border" Background="Transparent">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#FF3E3E42"/>
+                                <Setter TargetName="border" Property="Background" Value="#FF2E2E38"/>
                                 <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FF252530"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -216,13 +358,16 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" Background="{TemplateBinding Background}">
+                        <Border x:Name="border" Background="Transparent">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="#E81123"/>
                                 <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#C50F1F"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -255,7 +400,7 @@
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="0"/>
-                <RowDefinition Height="44"/>
+                <RowDefinition Height="32"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
@@ -278,36 +423,44 @@
 
             <!-- Заголовок -->
             <Border Grid.Row="1" Background="#FF1A1A2E" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="197*"/>
-                        <ColumnDefinition Width="801*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
+                <Grid Height="32">
                     <!-- Меню -->
-                    <StackPanel Orientation="Horizontal" Margin="10,0,10,0">
-                    <Button Content="File" Style="{StaticResource MenuButton}" Click="OpenFile_Click"/>
-                    <Button Content="Hotkeys" Style="{StaticResource MenuButton}" Click="ShowHotkeys_Click"/>
-                    <Button Content="Instruments" Style="{StaticResource MenuButton}" Click="ApplyEffects_Click"/>
-                    <Button Content="Help" Style="{StaticResource MenuButton}"/>
-                </StackPanel>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="6,0,0,0">
+                        <Button Content="File" Style="{StaticResource MenuButton}" Click="OpenFile_Click"/>
+                        <Button Content="Hotkeys" Style="{StaticResource MenuButton}" Click="ShowHotkeys_Click"/>
+                        <Button Content="Instruments" Style="{StaticResource MenuButton}" Click="ApplyEffects_Click"/>
+                        <Button Content="Help" Style="{StaticResource MenuButton}"/>
+                    </StackPanel>
 
-                <!-- Логотип (центр) -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="224,0,0,0">
-                    <TextBlock Text="halo" FontWeight="Bold" FontSize="14" Foreground="#FF7881FF"/>
-                    <TextBlock Text=" Blik" FontWeight="Bold" FontSize="14" Foreground="White"/>
-                </StackPanel>
+                    <!-- Логотип (центр): B = bloom, note = музыка -->
+                    <TextBlock FontFamily="{StaticResource BnoteFont}"
+                               FontSize="12"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Center">
+                        <Run Text="B" Foreground="#FF7881FF"/>
+                        <Run Text="note" Foreground="#FFE8E8EC"/>
+                    </TextBlock>
 
-                <!-- Кнопки управления окном -->
-                <StackPanel Grid.Column="3" Orientation="Horizontal">
-                    <Button Content="—" Style="{StaticResource WindowButton}" Click="Minimize_Click"/>
-                    <Button x:Name="MaximizeBtn" Content="☐" Style="{StaticResource WindowButton}" Click="Maximize_Click"/>
-                    <Button Content="✕" Style="{StaticResource CloseButton}" Click="Close_Click"/>
-                </StackPanel>
-            </Grid>
-        </Border>
+                    <!-- Кнопки управления окном -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Stretch">
+                        <Button Style="{StaticResource WindowButton}" Click="Minimize_Click" ToolTip="Свернуть">
+                            <Viewbox Width="10" Height="10" Stretch="Uniform">
+                                <fa:IconBlock Icon="WindowMinimize" Style="{StaticResource WindowChromeIcon}"/>
+                            </Viewbox>
+                        </Button>
+                        <Button x:Name="MaximizeBtn" Style="{StaticResource WindowButton}" Click="Maximize_Click" ToolTip="Развернуть">
+                            <Viewbox Width="10" Height="10" Stretch="Uniform">
+                                <fa:IconBlock x:Name="MaximizeIcon" Icon="WindowMaximize" Style="{StaticResource WindowChromeIcon}"/>
+                            </Viewbox>
+                        </Button>
+                        <Button Style="{StaticResource CloseButton}" Click="Close_Click" ToolTip="Закрыть">
+                            <Viewbox Width="10" Height="10" Stretch="Uniform">
+                                <fa:IconBlock Icon="Xmark" Style="{StaticResource WindowChromeIcon}"/>
+                            </Viewbox>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
 
             <!-- Основная область -->
             <Grid Grid.Row="2">
@@ -417,7 +570,7 @@
                                 <fa:IconBlock Icon="Play" Foreground="White" FontSize="16"/>
                             </Button>
                             <Button x:Name="BtnStop" Style="{StaticResource StopButton}" Click="Stop_Click" IsEnabled="False" Margin="5,0,0,0">
-                                <fa:IconBlock Icon="Stop" Foreground="White" FontSize="14"/>
+                                <fa:IconBlock Icon="Stop" Foreground="#FFCCCCCC" FontSize="13"/>
                             </Button>
                             <Button x:Name="BtnLoop" Style="{StaticResource ToolButton}" Click="LoopToggle_Click" Margin="8,0,0,0" ToolTip="Зациклить">
                                 <fa:IconBlock Icon="RotateRight" Foreground="#FFAAAAAA" FontSize="14"/>
@@ -464,10 +617,10 @@
                         <!-- КнопкиApply -->
                         <StackPanel Grid.Column="3" Orientation="Horizontal">
                             <Button Content="+ Track" Style="{StaticResource AccentButton}" Click="AddTrack_Click" Margin="0,0,5,0"/>
-                            <Button Content="- Delete" Style="{StaticResource MenuButton}" Click="RemoveTrack_Click"/>
-                            <Button Content="Clear" Style="{StaticResource MenuButton}" Click="ClearTrack_Click" ToolTip="Очистить трек"/>
+                            <Button Content="- Delete" Style="{StaticResource ToolbarButton}" Click="RemoveTrack_Click"/>
+                            <Button Content="Clear" Style="{StaticResource ToolbarButton}" Click="ClearTrack_Click" ToolTip="Очистить трек" Margin="5,0,0,0"/>
                             <Button Content="✓ Apply" Style="{StaticResource AccentButton}" x:Name="BtnApply" Click="ApplyEffects_Click" IsEnabled="False" Margin="5,0,0,0"/>
-                            <Button Content="G ↓" Style="{StaticResource MenuButton}" ToolTip="Группировать" Margin="5,0,0,0"/>
+                            <Button Content="G ↓" Style="{StaticResource ToolbarButton}" ToolTip="Группировать" Margin="5,0,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -477,33 +630,21 @@
                     <controls:TimeRuler x:Name="TimeRulerControl"/>
                 </Border>
 
-                <!-- Треки + слой выделения ПОВЕРХ -->
+                <!-- Playlist (FL Studio style) -->
                 <Grid Grid.Row="2">
-                    <!-- Треки (нижний слой) -->
-                    <Border x:Name="TracksBorder"
-                            AllowDrop="True" Drop="OnDrop" DragOver="OnDragOver" 
-                            DragEnter="OnDragEnter" DragLeave="OnDragLeave"
-                            MouseLeftButtonDown="TracksBorder_MouseDown"
-                            MouseRightButtonUp="TracksBorder_MouseRightButtonUp"
-                            PreviewDragOver="OnPreviewDragOver"
-                            PreviewDragEnter="OnPreviewDragEnter"
-                            PreviewDragLeave="OnPreviewDragLeave">
-                        <ScrollViewer x:Name="TracksScroller" 
-                                      VerticalScrollBarVisibility="Auto" 
-                                      HorizontalScrollBarVisibility="Visible"
-                                      PanningMode="Both"
-                                      ScrollChanged="TracksScroller_ScrollChanged">
+                    <views:PlaylistView x:Name="PlaylistViewControl"/>
+
+                    <!-- Hidden waveform tracks for backward compat -->
+                    <Border x:Name="TracksBorder" Visibility="Collapsed" AllowDrop="True">
+                        <ScrollViewer x:Name="TracksScroller" ScrollChanged="TracksScroller_ScrollChanged">
                             <Grid x:Name="TracksContainer">
-                                <StackPanel x:Name="TracksPanel" HorizontalAlignment="Left"/>
+                                <StackPanel x:Name="TracksPanel"/>
                             </Grid>
                         </ScrollViewer>
                     </Border>
-                    
-                    <!-- Слой выделения ПОВЕРХ треков (чисто визуальный, клики проходят сквозь) -->
-                    <Canvas x:Name="SelectionCanvas" 
-                            IsHitTestVisible="False"
-                            VerticalAlignment="Stretch"
-                            HorizontalAlignment="Stretch"/>
+
+                    <Canvas x:Name="SelectionCanvas" Visibility="Collapsed"
+                            IsHitTestVisible="False"/>
                 </Grid>
             </Grid>
         </Grid>
@@ -517,17 +658,18 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Статус + кольцо активности -->
+                <!-- Статус: кольцо + скрытая подпись «Готово» (для доступности) -->
                 <StackPanel Orientation="Horizontal">
-                    <Grid x:Name="ActivityRing" Width="22" Height="22" VerticalAlignment="Center" Cursor="Hand"
-                          Margin="0,0,8,0" ClipToBounds="False"
+                    <Grid x:Name="ActivityRing" Width="28" Height="28" VerticalAlignment="Center" Cursor="Hand"
+                          Margin="0,0,6,0" ClipToBounds="False"
                           MouseEnter="SpinnerGrid_MouseEnter" MouseLeave="SpinnerGrid_MouseLeave">
-                        <Ellipse x:Name="RingBg" Stroke="#FF555555" StrokeThickness="2" Fill="Transparent"/>
-                        <Path x:Name="RingProgress" Stroke="#FF7881FF" StrokeThickness="2.5" Fill="Transparent"
-                              Stretch="None"
-                              RenderTransformOrigin="0.5,0.5" Visibility="Collapsed"/>
+                        <Ellipse x:Name="RingBg" Width="22" Height="22" Stroke="#FF555555" StrokeThickness="2.5" Fill="Transparent"/>
+                        <Path x:Name="RingProgress" Stroke="#FF7881FF" StrokeThickness="3" Fill="Transparent"
+                              Stretch="None" Visibility="Collapsed"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
                     </Grid>
-                    <TextBlock x:Name="StatusText" Text="Готово" Foreground="#FF7881FF" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="StatusText" Text="Готово" Visibility="Collapsed" Width="0" Height="0"
+                               AutomationProperties.Name="Готово"/>
                 </StackPanel>
 
                 <!-- Инфотип Popup -->
