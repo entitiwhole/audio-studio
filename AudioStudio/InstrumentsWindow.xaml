@@ -1,332 +1,331 @@
 <Window x:Class="AudioStudio.InstrumentsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Instruments"
-        Height="550" Width="600"
+        xmlns:fa="clr-namespace:FontAwesome.Sharp;assembly=FontAwesome.Sharp"
+        Title="Инструменты"
+        Height="560" Width="520"
+        MinHeight="460" MinWidth="400"
         WindowStartupLocation="CenterOwner"
         WindowStyle="None"
         Background="Transparent"
-        ResizeMode="CanResize">
+        ResizeMode="CanResize"
+        SizeToContent="Manual">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Themes/StudioStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
 
     <WindowChrome.WindowChrome>
-        <WindowChrome CornerRadius="5" 
-                      GlassFrameThickness="-1" 
-                      ResizeBorderThickness="5"
-                      CaptionHeight="0"
+        <WindowChrome CornerRadius="0"
+                      GlassFrameThickness="0"
+                      ResizeBorderThickness="6"
+                      CaptionHeight="32"
                       UseAeroCaptionButtons="False"/>
     </WindowChrome.WindowChrome>
 
-    <Window.Resources>
-        <Style x:Key="CloseButton" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#FFCCCCCC"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Width" Value="36"/>
-            <Setter Property="Height" Value="28"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" Background="{TemplateBinding Background}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#E81123"/>
-                                <Setter Property="Foreground" Value="White"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="TrackSlider" TargetType="Slider">
-            <Setter Property="Minimum" Value="0"/>
-            <Setter Property="Maximum" Value="100"/>
-            <Setter Property="Height" Value="20"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Slider">
-                        <Grid>
-                            <Border Height="4" Background="#FF3E3E42" CornerRadius="2" VerticalAlignment="Center"/>
-                            <Border Height="4" Background="#FF7881FF" CornerRadius="2" VerticalAlignment="Center" 
-                                    HorizontalAlignment="Left">
-                                <Border.Width>
-                                    <MultiBinding Converter="{StaticResource SliderToWidthConverter}">
-                                        <Binding Path="Value" RelativeSource="{RelativeSource TemplatedParent}"/>
-                                        <Binding Path="Minimum" RelativeSource="{RelativeSource TemplatedParent}"/>
-                                        <Binding Path="Maximum" RelativeSource="{RelativeSource TemplatedParent}"/>
-                                        <Binding Path="ActualWidth" RelativeSource="{RelativeSource TemplatedParent}"/>
-                                    </MultiBinding>
-                                </Border.Width>
-                            </Border>
-                            <Track x:Name="PART_Track">
-                                <Track.Thumb>
-                                    <Thumb Width="14" Height="14">
-                                        <Thumb.Template>
-                                            <ControlTemplate TargetType="Thumb">
-                                                <Ellipse Fill="#FF7881FF" Width="14" Height="14"/>
-                                            </ControlTemplate>
-                                        </Thumb.Template>
-                                    </Thumb>
-                                </Track.Thumb>
-                            </Track>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-    </Window.Resources>
-
-    <!-- Основной контейнер -->
-    <Border Background="#FF252526" CornerRadius="5">
+    <Border Background="#FF252526" BorderBrush="#FF3E3E42" BorderThickness="1">
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="0"/>
-                <RowDefinition Height="38"/>
+                <RowDefinition Height="32"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- Resize region top -->
-            <!-- <Border Grid.Row="0" Background="Transparent" Cursor="SizeNS" 
-                    MouseLeftButtonDown="Window_MouseLeftButtonDown"/> -->
+            <!-- Заголовок -->
+            <Border Grid.Row="0" Background="#FF1A1A2E">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
+                        <fa:IconBlock Icon="SlidersH" Foreground="#FF7881FF" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="Инструменты" Foreground="#FFE8E8EC" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Border Grid.Column="1" Background="Transparent"
+                            WindowChrome.IsHitTestVisibleInChrome="True"
+                            MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"/>
+                    <Button Grid.Column="2" Style="{StaticResource InstrumentsCloseButton}" Click="Close_Click" ToolTip="Закрыть">
+                        <Viewbox Width="10" Height="10" Stretch="Uniform">
+                            <fa:IconBlock Icon="Xmark" Style="{StaticResource WindowChromeIcon}"/>
+                        </Viewbox>
+                    </Button>
+                </Grid>
+            </Border>
 
-            <!-- Header -->
-            <Border Grid.Row="1" Background="#FF1A1A2E" CornerRadius="5,5,0,0"
-                    MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            <!-- Контекст клипа -->
+            <Border Grid.Row="1" Background="#FF323233" Padding="12,8" BorderBrush="#FF3E3E42" BorderThickness="0,0,0,1">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0">
-                        <TextBlock Text="🎹" FontSize="14" Foreground="#FF7881FF" Margin="0,0,8,0"/>
-                        <TextBlock Text="Instruments" Foreground="White" FontSize="12" FontWeight="SemiBold"/>
+                    <StackPanel>
+                        <TextBlock x:Name="TrackNameText" Text="Клип не выбран"
+                                   Foreground="White" FontSize="12" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="TrackMetaText" Text="Выберите запись на плейлисте"
+                                   Foreground="#FF888888" FontSize="10" Margin="0,2,0,0"/>
                     </StackPanel>
-
-                    <Button Grid.Column="1" Content="✕" Style="{StaticResource CloseButton}" 
-                            Click="Close_Click" Margin="0,0,2,0"/>
+                    <TextBlock x:Name="EffectsStatusText" Grid.Column="1"
+                               Text="FX готовы" Foreground="#FF7881FF" FontSize="10"
+                               VerticalAlignment="Center"/>
                 </Grid>
             </Border>
 
-            <!-- Main content - Track-style panel -->
-            <Border Grid.Row="2" Background="#FF1E1E1E" Margin="8">
-                <Border BorderBrush="#FF3E3E42" BorderThickness="1" CornerRadius="4">
-                    <Grid Margin="15">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
+            <!-- Вкладки -->
+            <Border Grid.Row="2" Background="#FF2A2A2E" BorderBrush="#FF3E3E42" BorderThickness="0,0,0,1">
+                <StackPanel Orientation="Horizontal" Margin="8,0,0,0">
+                    <Button x:Name="TabMixer" Content="Микшер" Tag="mixer"
+                            Style="{StaticResource InstrumentsTabButton}" Click="Tab_Click"/>
+                    <Button x:Name="TabFilters" Content="Фильтры" Tag="filters"
+                            Style="{StaticResource InstrumentsTabButton}" Click="Tab_Click"/>
+                    <Button x:Name="TabEffects" Content="Эффекты" Tag="effects"
+                            Style="{StaticResource InstrumentsTabButton}" Click="Tab_Click"/>
+                </StackPanel>
+            </Border>
 
-                        <!-- Track info -->
-                        <TextBlock x:Name="TrackInfoText" Grid.Row="0" Text="Track: None" 
-                                   Foreground="White" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,12"/>
-
-                        <!-- Volume & Pan meters -->
-                        <Grid Grid.Row="1" Margin="0,0,0,15">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-
-                            <!-- Volume -->
-                            <Border Grid.Column="0" Background="#FF2D2D30" CornerRadius="4" Padding="12,10">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="50"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="50"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <TextBlock Text="VOL" Foreground="White" FontSize="11" FontWeight="Bold" 
-                                               VerticalAlignment="Center"/>
-
-                                    <Slider x:Name="VolumeSlider" Grid.Column="1" 
-                                            Minimum="0" Maximum="200" Value="100" 
-                                            VerticalAlignment="Center" Margin="8,0"
-                                            ValueChanged="VolumeChanged"/>
-
-                                    <TextBlock x:Name="VolumeText" Grid.Column="2" Text="100%" 
-                                               Foreground="White" FontSize="11" FontFamily="Consolas"
-                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                                </Grid>
-                            </Border>
-
-                            <!-- Pan -->
-                            <Border Grid.Column="1" Background="#FF2D2D30" CornerRadius="4" Padding="12,10" Margin="10,0,0,0">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="50"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="50"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <TextBlock Text="PAN" Foreground="#FF7881FF" FontSize="10" FontWeight="Bold" 
-                                               VerticalAlignment="Center"/>
-
-                                    <Slider x:Name="PanSlider" Grid.Column="1" 
-                                            Minimum="-100" Maximum="100" Value="0" 
-                                            VerticalAlignment="Center" Margin="8,0"
-                                            ValueChanged="PanChanged"/>
-
-                                    <TextBlock x:Name="PanText" Grid.Column="2" Text="CENTER" 
-                                               Foreground="White" FontSize="11" FontFamily="Consolas"
-                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                                </Grid>
-                            </Border>
-                        </Grid>
-
-                        <!-- Effects panels -->
-                        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <!-- Контент вкладок -->
+            <Border Grid.Row="3" Background="#FF252526" ClipToBounds="True">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              Padding="12,10">
+                    <Grid Grid.IsSharedSizeScope="True">
+                        <!-- Микшер -->
+                        <Border x:Name="PanelMixer" Style="{StaticResource InstrumentPanel}">
                             <StackPanel>
-                                <!-- FILTERS -->
-                                <Border Background="#FF2D2D30" CornerRadius="4" Padding="12" Margin="0,0,0,10">
-                                    <StackPanel>
-                                        <TextBlock Text="FILTERS" Foreground="White" FontSize="11" FontWeight="Bold" Margin="0,0,0,10"/>
-
-                                        <!-- Low Pass -->
-                                        <Grid Margin="0,0,0,8">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="80"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="60"/>
-                                            </Grid.ColumnDefinitions>
-
-                                            <CheckBox x:Name="LowPassCheck" Content="Low Pass" Foreground="#FFCCCCCC" 
-                                                      VerticalAlignment="Center" Click="LowPassClick"/>
-
-                                            <Slider x:Name="LowPassSlider" Grid.Column="1" 
-                                                    Minimum="200" Maximum="20000" Value="5000" 
-                                                    VerticalAlignment="Center" Margin="10,0"
-                                                    ValueChanged="LowPassChanged"/>
-
-                                            <TextBlock x:Name="LowPassText" Grid.Column="2" Text="5000 Hz" 
-                                                       Foreground="#FF7881FF" FontSize="10" FontFamily="Consolas"
-                                                       HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                                        </Grid>
-
-                                        <!-- High Pass -->
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="80"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="60"/>
-                                            </Grid.ColumnDefinitions>
-
-                                            <CheckBox x:Name="HighPassCheck" Content="High Pass" Foreground="#FFCCCCCC" 
-                                                      VerticalAlignment="Center" Click="HighPassClick"/>
-
-                                            <Slider x:Name="HighPassSlider" Grid.Column="1" 
-                                                    Minimum="20" Maximum="5000" Value="200" 
-                                                    VerticalAlignment="Center" Margin="10,0"
-                                                    ValueChanged="HighPassChanged"/>
-
-                                            <TextBlock x:Name="HighPassText" Grid.Column="2" Text="200 Hz" 
-                                                       Foreground="#FF7881FF" FontSize="10" FontFamily="Consolas"
-                                                       HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-
-                                <!-- EFFECTS -->
-                                <Border Background="#FF2D2D30" CornerRadius="4" Padding="12">
-                                    <StackPanel>
-                                        <TextBlock Text="EFFECTS" Foreground="White" FontSize="11" FontWeight="Bold" Margin="0,0,0,10"/>
-
-                                        <!-- Gain -->
-                                        <Grid Margin="0,0,0,10">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="80"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="60"/>
-                                            </Grid.ColumnDefinitions>
-
-                                            <CheckBox x:Name="GainCheck" Content="Gain" Foreground="#FFCCCCCC" 
-                                                      VerticalAlignment="Center" Click="GainClick"/>
-
-                                            <Slider x:Name="GainSlider" Grid.Column="1" 
-                                                    Minimum="-20" Maximum="20" Value="0" 
-                                                    VerticalAlignment="Center" Margin="10,0"
-                                                    ValueChanged="GainChanged"/>
-
-                                            <TextBlock x:Name="GainText" Grid.Column="2" Text="0 dB" 
-                                                       Foreground="#FF7881FF" FontSize="10" FontFamily="Consolas"
-                                                       HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                                        </Grid>
-
-                                        <!-- Echo / Delay -->
-                                        <CheckBox x:Name="EchoCheck" Content="Echo / Delay" Foreground="#FFCCCCCC" 
-                                                  Margin="0,5" Click="EchoClick"/>
-
-                                        <Grid Margin="20,5,0,10" x:Name="EchoPanel">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-
-                                            <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                                                <TextBlock Text="Delay" Foreground="#FF888888" FontSize="9"/>
-                                                <Slider x:Name="EchoDelaySlider" Minimum="50" Maximum="1000" Value="300" ValueChanged="EchoChanged"/>
-                                                <TextBlock x:Name="EchoDelayText" Text="300 ms" Foreground="#FF7881FF" FontSize="9" FontFamily="Consolas"/>
-                                            </StackPanel>
-
-                                            <StackPanel Grid.Column="1" Margin="0,0,10,0">
-                                                <TextBlock Text="Feedback" Foreground="#FF888888" FontSize="9"/>
-                                                <Slider x:Name="EchoFeedbackSlider" Minimum="0" Maximum="90" Value="30" ValueChanged="EchoChanged"/>
-                                                <TextBlock x:Name="EchoFeedbackText" Text="30%" Foreground="#FF7881FF" FontSize="9" FontFamily="Consolas"/>
-                                            </StackPanel>
-
-                                            <StackPanel Grid.Column="2">
-                                                <TextBlock Text="Mix" Foreground="#FF888888" FontSize="9"/>
-                                                <Slider x:Name="EchoMixSlider" Minimum="0" Maximum="100" Value="30" ValueChanged="EchoChanged"/>
-                                                <TextBlock x:Name="EchoMixText" Text="30%" Foreground="#FF7881FF" FontSize="9" FontFamily="Consolas"/>
-                                            </StackPanel>
-                                        </Grid>
-
-                                        <!-- Reverb -->
-                                        <CheckBox x:Name="ReverbCheck" Content="Reverb" Foreground="#FFCCCCCC" 
-                                                  Margin="0,5" Click="ReverbClick"/>
-
-                                        <Grid Margin="20,5,0,0" x:Name="ReverbPanel">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-
-                                            <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                                                <TextBlock Text="Wet" Foreground="#FF888888" FontSize="9"/>
-                                                <Slider x:Name="ReverbWetSlider" Minimum="0" Maximum="100" Value="30" ValueChanged="ReverbChanged"/>
-                                                <TextBlock x:Name="ReverbWetText" Text="30%" Foreground="#FF7881FF" FontSize="9" FontFamily="Consolas"/>
-                                            </StackPanel>
-
-                                            <StackPanel Grid.Column="1">
-                                                <TextBlock Text="Room" Foreground="#FF888888" FontSize="9"/>
-                                                <Slider x:Name="ReverbRoomSlider" Minimum="0" Maximum="100" Value="50" ValueChanged="ReverbChanged"/>
-                                                <TextBlock x:Name="ReverbRoomText" Text="50%" Foreground="#FF7881FF" FontSize="9" FontFamily="Consolas"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-
-                                <!-- Action buttons -->
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
-                                    <Button x:Name="PreviewBtn" Content="▶ Preview" Width="90" Margin="0,0,8,0" 
-                                            Background="#FF4CAF50" Foreground="White" BorderThickness="0" Padding="10,8" Click="PreviewClick"/>
-                                    <Button Content="Cancel" Width="80" Margin="0,0,8,0" Click="CancelClick"
-                                            Background="#FF3E3E42" Foreground="White" BorderThickness="0" Padding="10,8"/>
-                                    <Button Content="Apply" Width="80" Background="#FF4CAF50" Foreground="White" 
-                                            BorderThickness="0" Padding="10,8" Click="ApplyClick"/>
-                                </StackPanel>
+                                <Grid Margin="0,0,0,12">
+                                    <TextBlock Text="Громкость и панорама" Foreground="#FF9A9AA8" FontSize="10" FontWeight="SemiBold"/>
+                                    <Button Content="Сброс" HorizontalAlignment="Right" Style="{StaticResource ToolbarButton}"
+                                            Padding="8,3" FontSize="10" Click="ResetMixer_Click"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="88" SharedSizeGroup="LabelCol"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="64" SharedSizeGroup="ValueCol"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Громкость" Foreground="#FFDDDDDD" FontSize="11" VerticalAlignment="Center"/>
+                                    <Slider x:Name="VolumeSlider" Grid.Column="2" Style="{StaticResource TrackSlider}"
+                                            Minimum="0" Maximum="200" Value="100" ValueChanged="VolumeChanged"/>
+                                    <TextBlock x:Name="VolumeText" Grid.Column="4" Text="100%"
+                                               Foreground="#FF7881FF" FontSize="11" FontFamily="Consolas"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="88" SharedSizeGroup="LabelCol"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="64" SharedSizeGroup="ValueCol"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Панорама" Foreground="#FFDDDDDD" FontSize="11" VerticalAlignment="Center"/>
+                                    <Slider x:Name="PanSlider" Grid.Column="2" Style="{StaticResource TrackSlider}"
+                                            Minimum="-100" Maximum="100" Value="0" ValueChanged="PanChanged"/>
+                                    <TextBlock x:Name="PanText" Grid.Column="4" Text="ЦЕНТР"
+                                               Foreground="#FF7881FF" FontSize="11" FontFamily="Consolas"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
                             </StackPanel>
-                        </ScrollViewer>
+                        </Border>
+
+                        <!-- Фильтры -->
+                        <Border x:Name="PanelFilters" Style="{StaticResource InstrumentPanel}" Visibility="Collapsed">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,12">
+                                    <TextBlock Text="Частотные фильтры" Foreground="#FF9A9AA8" FontSize="10" FontWeight="SemiBold"/>
+                                    <Button Content="Сброс" HorizontalAlignment="Right" Style="{StaticResource ToolbarButton}"
+                                            Padding="8,3" FontSize="10" Click="ResetFilters_Click"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="88" SharedSizeGroup="LabelCol"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="64" SharedSizeGroup="ValueCol"/>
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox x:Name="LowPassCheck" Grid.Column="0" Content="Low Pass"
+                                              Style="{StaticResource InstrumentCheckBox}" VerticalAlignment="Center" Click="LowPassClick"/>
+                                    <Slider x:Name="LowPassSlider" Grid.Column="2" Style="{StaticResource TrackSlider}"
+                                            Minimum="200" Maximum="20000" Value="5000" IsEnabled="False" ValueChanged="LowPassChanged"/>
+                                    <TextBlock x:Name="LowPassText" Grid.Column="4" Text="5000 Hz"
+                                               Foreground="#FF7881FF" FontSize="10" FontFamily="Consolas"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="88" SharedSizeGroup="LabelCol"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="64" SharedSizeGroup="ValueCol"/>
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox x:Name="HighPassCheck" Grid.Column="0" Content="High Pass"
+                                              Style="{StaticResource InstrumentCheckBox}" VerticalAlignment="Center" Click="HighPassClick"/>
+                                    <Slider x:Name="HighPassSlider" Grid.Column="2" Style="{StaticResource TrackSlider}"
+                                            Minimum="20" Maximum="5000" Value="200" IsEnabled="False" ValueChanged="HighPassChanged"/>
+                                    <TextBlock x:Name="HighPassText" Grid.Column="4" Text="200 Hz"
+                                               Foreground="#FF7881FF" FontSize="10" FontFamily="Consolas"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Эффекты -->
+                        <StackPanel x:Name="PanelEffects" Visibility="Collapsed">
+                            <Border Style="{StaticResource InstrumentPanel}" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock Text="Усиление" Foreground="#FF9A9AA8" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="88" SharedSizeGroup="LabelCol"/>
+                                            <ColumnDefinition Width="12"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="12"/>
+                                            <ColumnDefinition Width="64" SharedSizeGroup="ValueCol"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox x:Name="GainCheck" Grid.Column="0" Content="Gain"
+                                                  Style="{StaticResource InstrumentCheckBox}" VerticalAlignment="Center" Click="GainClick"/>
+                                        <Slider x:Name="GainSlider" Grid.Column="2" Style="{StaticResource TrackSlider}"
+                                                Minimum="-20" Maximum="20" Value="0" IsEnabled="False" ValueChanged="GainChanged"/>
+                                        <TextBlock x:Name="GainText" Grid.Column="4" Text="0 dB"
+                                                   Foreground="#FF7881FF" FontSize="10" FontFamily="Consolas"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource InstrumentPanel}" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock Text="Эхо / задержка" Foreground="#FF9A9AA8" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                    <CheckBox x:Name="EchoCheck" Content="Включить эхо" Style="{StaticResource InstrumentCheckBox}"
+                                              Margin="0,0,0,10" Click="EchoClick"/>
+                                    <Grid x:Name="EchoPanel" Visibility="Collapsed">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="Задержка" Foreground="#FF888888" FontSize="9"/>
+                                            <Slider x:Name="EchoDelaySlider" Style="{StaticResource TrackSlider}"
+                                                    Minimum="50" Maximum="1000" Value="300" Margin="0,4,0,2" ValueChanged="EchoChanged"/>
+                                            <TextBlock x:Name="EchoDelayText" Text="300 ms" Foreground="#FF7881FF" FontSize="9" FontFamily="Consolas"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="Обратная связь" Foreground="#FF888888" FontSize="9"/>
+                                            <Slider x:Name="EchoFeedbackSlider" Style="{StaticResource TrackSlider}"
+                                                    Minimum="0" Maximum="90" Value="30" Margin="0,4,0,2" ValueChanged="EchoChanged"/>
+                                            <TextBlock x:Name="EchoFeedbackText" Text="30%" Foreground="#FF7881FF" FontSize="9" FontFamily="Consolas"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="4">
+                                            <TextBlock Text="Микс" Foreground="#FF888888" FontSize="9"/>
+                                            <Slider x:Name="EchoMixSlider" Style="{StaticResource TrackSlider}"
+                                                    Minimum="0" Maximum="100" Value="30" Margin="0,4,0,2" ValueChanged="EchoChanged"/>
+                                            <TextBlock x:Name="EchoMixText" Text="30%" Foreground="#FF7881FF" FontSize="9" FontFamily="Consolas"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource InstrumentPanel}">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,8">
+                                        <TextBlock Text="Реверберация" Foreground="#FF9A9AA8" FontSize="10" FontWeight="SemiBold"/>
+                                        <Button Content="Сброс эффектов" HorizontalAlignment="Right"
+                                                Style="{StaticResource ToolbarButton}" Padding="8,3" FontSize="10"
+                                                Click="ResetEffects_Click"/>
+                                    </Grid>
+                                    <CheckBox x:Name="ReverbCheck" Content="Включить реверб" Style="{StaticResource InstrumentCheckBox}"
+                                              Margin="0,0,0,10" Click="ReverbClick"/>
+                                    <Grid x:Name="ReverbPanel" Visibility="Collapsed">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="Wet" Foreground="#FF888888" FontSize="9"/>
+                                            <Slider x:Name="ReverbWetSlider" Style="{StaticResource TrackSlider}"
+                                                    Minimum="0" Maximum="100" Value="30" Margin="0,4,0,2" ValueChanged="ReverbChanged"/>
+                                            <TextBlock x:Name="ReverbWetText" Text="30%" Foreground="#FF7881FF" FontSize="9" FontFamily="Consolas"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="Комната" Foreground="#FF888888" FontSize="9"/>
+                                            <Slider x:Name="ReverbRoomSlider" Style="{StaticResource TrackSlider}"
+                                                    Minimum="0" Maximum="100" Value="50" Margin="0,4,0,2" ValueChanged="ReverbChanged"/>
+                                            <TextBlock x:Name="ReverbRoomText" Text="50%" Foreground="#FF7881FF" FontSize="9" FontFamily="Consolas"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
                     </Grid>
-                </Border>
+                </ScrollViewer>
+            </Border>
+
+            <!-- Нижняя панель: только вертикальная раскладка — не наезжает при любой ширине -->
+            <Border Grid.Row="4" Background="#FF2E2E32" Padding="14,12"
+                    BorderBrush="#FF3E3E42" BorderThickness="0,1,0,0">
+                <StackPanel>
+                    <CheckBox x:Name="LivePreviewCheck"
+                              Content="Живой предпросмотр"
+                              Style="{StaticResource InstrumentCheckBox}" IsChecked="True"
+                              Margin="0,0,0,12"/>
+
+                    <TextBlock Text="Пресет"
+                               Foreground="#FF9A9AA8" FontSize="10" FontWeight="SemiBold"
+                               Margin="0,0,0,6"/>
+                    <ComboBox x:Name="PresetCombo"
+                              Style="{StaticResource InstrumentComboBox}"
+                              Margin="0,0,0,14"
+                              SelectionChanged="PresetCombo_SelectionChanged">
+                        <ComboBoxItem Content="Чистый" IsSelected="True"/>
+                        <ComboBoxItem Content="Вокал"/>
+                        <ComboBoxItem Content="Бас"/>
+                        <ComboBoxItem Content="Пространство"/>
+                    </ComboBox>
+
+                    <Border Height="1" Background="#FF3E3E42" Margin="0,0,0,12"/>
+
+                    <!-- Кнопки по центру, фиксированная группа — не растягиваются на всю ширину -->
+                    <Grid HorizontalAlignment="Center" MaxWidth="400">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="120"/>
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="PreviewBtn" Grid.Column="0"
+                                Style="{StaticResource InstrumentFooterButton}" Click="PreviewClick">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <fa:IconBlock Icon="Play" FontSize="10" Foreground="White" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="Прослушать" FontSize="11" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="2" Content="Отмена"
+                                Style="{StaticResource InstrumentFooterSecondaryButton}" Click="CancelClick"/>
+                        <Button Grid.Column="4" Style="{StaticResource InstrumentFooterButton}" Click="ApplyClick">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <fa:IconBlock Icon="Check" FontSize="10" Foreground="White" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="Применить" FontSize="11" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </StackPanel>
             </Border>
         </Grid>
     </Border>

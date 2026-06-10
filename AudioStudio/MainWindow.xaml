@@ -7,7 +7,8 @@
         xmlns:views="clr-namespace:AudioStudio.Views"
         Title="BF^Studio" 
         Height="800" Width="1400"
-        MinHeight="1" MinWidth="1100"
+        MinHeight="600" MinWidth="1100"
+        ShowInTaskbar="True"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         ResizeMode="CanResize"
@@ -17,25 +18,137 @@
         <WindowChrome CornerRadius="0" 
                       GlassFrameThickness="0" 
                       ResizeBorderThickness="8"
-                      CaptionHeight="0"/>
+                      CaptionHeight="32"/>
     </WindowChrome.WindowChrome>
 
     <Window.Resources>
-        <Style x:Key="MenuButton" TargetType="Button">
+        <Style x:Key="TitleBarMenu" TargetType="Menu">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="#FF9A9AA8"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="10,0"/>
-            <Setter Property="Height" Value="32"/>
             <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="VerticalAlignment" Value="Stretch"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" Background="Transparent" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <ControlTemplate TargetType="Menu">
+                        <Border Background="Transparent" SnapsToDevicePixels="True" Height="32">
+                            <StackPanel Orientation="Horizontal"
+                                        IsItemsHost="True"
+                                        VerticalAlignment="Stretch"/>
                         </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Верхняя панель: только текст по центру блока 32px -->
+        <Style x:Key="TitleBarMenuItem" TargetType="MenuItem">
+            <Setter Property="Foreground" Value="#FF9A9AA8"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="Border"
+                                Background="Transparent"
+                                Height="32"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True"
+                                VerticalAlignment="Stretch">
+                            <Grid>
+                                <ContentPresenter x:Name="HeaderPresenter"
+                                                  ContentSource="Header"
+                                                  RecognizesAccessKey="True"
+                                                  VerticalAlignment="Center"
+                                                  HorizontalAlignment="Center"/>
+                                <Popup x:Name="PART_Popup"
+                                       AllowsTransparency="True"
+                                       Focusable="False"
+                                       IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                                       Placement="Bottom"
+                                       PopupAnimation="Fade">
+                                    <Border Background="#FF232336"
+                                            BorderBrush="#FF45455C"
+                                            BorderThickness="1"
+                                            CornerRadius="5"
+                                            Padding="4,3"
+                                            SnapsToDevicePixels="True"
+                                            MinWidth="210">
+                                        <StackPanel IsItemsHost="True"
+                                                    Grid.IsSharedSizeScope="True"
+                                                    KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#FF34344C"/>
+                                <Setter Property="Foreground" Value="#FFE8E8EC"/>
+                            </Trigger>
+                            <Trigger Property="IsSubmenuOpen" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#FF34344C"/>
+                                <Setter Property="Foreground" Value="#FF7881FF"/>
+                            </Trigger>
+                            <Trigger Property="Role" Value="TopLevelItem">
+                                <Setter TargetName="PART_Popup" Property="Visibility" Value="Collapsed"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Пункты выпадающего меню -->
+        <Style x:Key="TitleBarSubMenuItem" TargetType="MenuItem">
+            <Setter Property="Foreground" Value="#FFC8C8D4"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="MinHeight" Value="28"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="Border"
+                                Background="Transparent"
+                                Height="28"
+                                Padding="{TemplateBinding Padding}"
+                                HorizontalAlignment="Stretch"
+                                SnapsToDevicePixels="True">
+                            <Grid VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="MenuGesture"/>
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter Grid.Column="0"
+                                                  ContentSource="Header"
+                                                  RecognizesAccessKey="True"
+                                                  VerticalAlignment="Center"
+                                                  HorizontalAlignment="Left"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="{TemplateBinding InputGestureText}"
+                                           Margin="16,0,0,0"
+                                           Foreground="#FF6E6E82"
+                                           FontSize="10"
+                                           TextAlignment="Right"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#FF34344C"/>
+                                <Setter Property="Foreground" Value="#FFE8E8EC"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -328,6 +441,7 @@
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="#FFAAAAAA"/>
             <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True"/>
             <Setter Property="Width" Value="36"/>
             <Setter Property="Height" Value="32"/>
             <Setter Property="Padding" Value="0"/>
@@ -409,8 +523,8 @@
             <Border Grid.Row="0" Background="Transparent" Cursor="SizeNS"
                     MouseLeftButtonDown="Window_MouseLeftButtonDown" Tag="Top"/>
             
-            <!-- Resize справа -->
-            <Border Grid.Row="1" Grid.RowSpan="3" Width="6" HorizontalAlignment="Right" Background="Transparent" 
+            <!-- Resize справа (ниже title bar, чтобы не перекрывать кнопки окна) -->
+            <Border Grid.Row="2" Grid.RowSpan="2" Width="6" HorizontalAlignment="Right" Background="Transparent" 
                     Cursor="SizeWE" MouseLeftButtonDown="Window_MouseLeftButtonDown" Tag="Right"/>
             
             <!-- Resize снизу -->
@@ -422,27 +536,55 @@
                     Background="Transparent" Cursor="SizeNWSE" MouseLeftButtonDown="Window_MouseLeftButtonDown" Tag="BottomRight"/>
 
             <!-- Заголовок -->
-            <Border Grid.Row="1" Background="#FF1A1A2E" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            <Border Grid.Row="1" Background="#FF1A1A2E">
                 <Grid Height="32">
-                    <!-- Меню -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="6,0,0,0">
-                        <Button Content="File" Style="{StaticResource MenuButton}" Click="OpenFile_Click"/>
-                        <Button Content="Hotkeys" Style="{StaticResource MenuButton}" Click="ShowHotkeys_Click"/>
-                        <Button Content="Instruments" Style="{StaticResource MenuButton}" Click="ApplyEffects_Click"/>
-                        <Button Content="Help" Style="{StaticResource MenuButton}"/>
-                    </StackPanel>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="108"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Меню (только слева, не перекрывает всю панель) -->
+                    <Menu Grid.Column="0" Style="{StaticResource TitleBarMenu}" VerticalAlignment="Stretch" Margin="4,0,0,0">
+                        <MenuItem Header="Файл" Style="{StaticResource TitleBarMenuItem}">
+                            <MenuItem Header="Новый проект" Style="{StaticResource TitleBarSubMenuItem}" Click="NewProject_Click"/>
+                            <MenuItem Header="Открыть проект..." Style="{StaticResource TitleBarSubMenuItem}" Click="OpenProject_Click"/>
+                            <MenuItem Header="Сохранить" Style="{StaticResource TitleBarSubMenuItem}" Click="SaveProject_Click" InputGestureText="Ctrl+S"/>
+                            <MenuItem Header="Сохранить как..." Style="{StaticResource TitleBarSubMenuItem}" Click="SaveProjectAs_Click" InputGestureText="Ctrl+Shift+S"/>
+                            <MenuItem Header="Добавить аудио..." Style="{StaticResource TitleBarSubMenuItem}" Click="AddAudio_Click" InputGestureText="Ctrl+O"/>
+                        </MenuItem>
+                        <MenuItem Header="Инструменты" Style="{StaticResource TitleBarMenuItem}" Click="ApplyEffects_Click"/>
+                        <MenuItem Header="Справка" Style="{StaticResource TitleBarMenuItem}">
+                            <MenuItem Header="Горячие клавиши" Style="{StaticResource TitleBarSubMenuItem}" Click="ShowHotkeys_Click"/>
+                            <MenuItem Header="О программе" Style="{StaticResource TitleBarSubMenuItem}" Click="HelpAbout_Click"/>
+                        </MenuItem>
+                    </Menu>
+
+                    <!-- Зона перетаскивания окна (только центр, не доходит до кнопок) -->
+                    <Border x:Name="TitleBarDragArea" Grid.Column="1"
+                            Background="Transparent"
+                            Panel.ZIndex="0"
+                            Margin="0,0,12,0"
+                            HorizontalAlignment="Stretch"
+                            WindowChrome.IsHitTestVisibleInChrome="True"
+                            MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"/>
 
                     <!-- Логотип (центр): B = bloom, note = музыка -->
-                    <TextBlock FontFamily="{StaticResource BnoteFont}"
+                    <TextBlock Grid.Column="1"
+                               FontFamily="{StaticResource BnoteFont}"
                                FontSize="12"
                                VerticalAlignment="Center"
-                               HorizontalAlignment="Center">
+                               HorizontalAlignment="Center"
+                               IsHitTestVisible="False">
                         <Run Text="B" Foreground="#FF7881FF"/>
                         <Run Text="note" Foreground="#FFE8E8EC"/>
                     </TextBlock>
 
                     <!-- Кнопки управления окном -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Stretch">
+                    <StackPanel Grid.Column="2" Panel.ZIndex="20"
+                                Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                                Background="Transparent"
+                                WindowChrome.IsHitTestVisibleInChrome="True">
                         <Button Style="{StaticResource WindowButton}" Click="Minimize_Click" ToolTip="Свернуть">
                             <Viewbox Width="10" Height="10" Stretch="Uniform">
                                 <fa:IconBlock Icon="WindowMinimize" Style="{StaticResource WindowChromeIcon}"/>
@@ -463,16 +605,16 @@
             </Border>
 
             <!-- Основная область -->
-            <Grid Grid.Row="2">
+            <Grid Grid.Row="2" x:Name="MainWorkspaceGrid">
                 <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="220" MinWidth="150" x:Name="BrowserColumn"/>
-                <ColumnDefinition Width="4"/>
+                <ColumnDefinition Width="4" x:Name="SplitterColumn"/>
                 <!-- Разделитель -->
-                <ColumnDefinition Width="*" MinWidth="200"/>
+                <ColumnDefinition Width="*" MinWidth="200" x:Name="WorkspaceColumn"/>
             </Grid.ColumnDefinitions>
 
             <!-- Левая панель - Браузер файлов -->
-            <Border Grid.Column="0" Background="#FF252526">
+            <Border Grid.Column="0" Background="#FF252526" ClipToBounds="True">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -542,12 +684,12 @@
             </Border>
 
             <!-- Разделитель между браузером и треками -->
-            <Border Grid.Column="1" Background="#FF3E3E42" 
+            <Border Grid.Column="1" Background="#FF3E3E42" Panel.ZIndex="2"
                     MouseLeftButtonDown="Splitter_MouseLeftButtonDown"
                     Cursor="SizeWE"/>
 
             <!-- Основная рабочая область -->
-            <Grid Grid.Column="2">
+            <Grid Grid.Column="2" ClipToBounds="True">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="24"/>  <!-- TimeRuler -->
@@ -559,17 +701,18 @@
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="28"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- Transport -->
-                        <StackPanel Orientation="Horizontal">
+                        <!-- Transport: Play / Stop / Loop -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Panel.ZIndex="10">
                             <Button x:Name="BtnPlay" Style="{StaticResource PlayButton}" Click="Play_Click" IsEnabled="False">
                                 <fa:IconBlock Icon="Play" Foreground="White" FontSize="16"/>
                             </Button>
-                            <Button x:Name="BtnStop" Style="{StaticResource StopButton}" Click="Stop_Click" IsEnabled="False" Margin="5,0,0,0">
+                            <Button x:Name="BtnStop" Style="{StaticResource StopButton}" Click="Stop_Click" IsEnabled="False" Margin="6,0,0,0">
                                 <fa:IconBlock Icon="Stop" Foreground="#FFCCCCCC" FontSize="13"/>
                             </Button>
                             <Button x:Name="BtnLoop" Style="{StaticResource ToolButton}" Click="LoopToggle_Click" Margin="8,0,0,0" ToolTip="Зациклить">
@@ -577,8 +720,8 @@
                             </Button>
                         </StackPanel>
 
-                        <!-- Инструменты -->
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="20,0">
+                        <!-- Инструменты (правее transport, с зазором) -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Panel.ZIndex="10">
                             <Button Style="{StaticResource ToolButton}" Click="Cut_Click" IsEnabled="False" x:Name="BtnCut" ToolTip="Вырезать">
                                 <fa:IconBlock Icon="Scissors" Foreground="#FFAAAAAA" FontSize="14"/>
                             </Button>
@@ -615,7 +758,7 @@
                         </StackPanel>
 
                         <!-- КнопкиApply -->
-                        <StackPanel Grid.Column="3" Orientation="Horizontal">
+                        <StackPanel Grid.Column="4" Orientation="Horizontal">
                             <Button Content="+ Track" Style="{StaticResource AccentButton}" Click="AddTrack_Click" Margin="0,0,5,0"/>
                             <Button Content="- Delete" Style="{StaticResource ToolbarButton}" Click="RemoveTrack_Click"/>
                             <Button Content="Clear" Style="{StaticResource ToolbarButton}" Click="ClearTrack_Click" ToolTip="Очистить трек" Margin="5,0,0,0"/>
@@ -658,13 +801,16 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Статус: кольцо + скрытая подпись «Готово» (для доступности) -->
+                <!-- Статус: кольцо + скрытая подпись «Готово» -->
                 <StackPanel Orientation="Horizontal">
                     <Grid x:Name="ActivityRing" Width="28" Height="28" VerticalAlignment="Center" Cursor="Hand"
                           Margin="0,0,6,0" ClipToBounds="False"
                           MouseEnter="SpinnerGrid_MouseEnter" MouseLeave="SpinnerGrid_MouseLeave">
-                        <Ellipse x:Name="RingBg" Width="22" Height="22" Stroke="#FF555555" StrokeThickness="2.5" Fill="Transparent"/>
+                        <Ellipse x:Name="RingBg" Width="22" Height="22"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                                 Stroke="#FF555555" StrokeThickness="2.5" Fill="Transparent"/>
                         <Path x:Name="RingProgress" Stroke="#FF7881FF" StrokeThickness="3" Fill="Transparent"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
                               Stretch="None" Visibility="Collapsed"
                               StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
                     </Grid>
@@ -672,9 +818,8 @@
                                AutomationProperties.Name="Готово"/>
                 </StackPanel>
 
-                <!-- Инфотип Popup -->
                 <Popup x:Name="ActivityPopup" Placement="Top" PlacementTarget="{Binding ElementName=ActivityRing}"
-                       StaysOpen="True" AllowsTransparency="True" PopupAnimation="Fade"
+                       StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade"
                        IsOpen="False">
                     <Border Background="#FF2D2D30" BorderBrush="#FF3E3E42" BorderThickness="1"
                             CornerRadius="4" Padding="14,10" MinWidth="200">

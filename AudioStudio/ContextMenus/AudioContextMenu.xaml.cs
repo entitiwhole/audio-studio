@@ -27,53 +27,51 @@ namespace AudioStudio.ContextMenus
             }
             catch { }
 
-            var itemStyle = rd["MenuItemStyle"] as Style;
-            var sepStyle = rd["MenuSepStyle"] as Style;
+            var itemStyle = rd["ContextMenuItemStyle"] as Style;
+            var sepStyle = rd["ContextMenuSepStyle"] as Style;
+            var hintStyle = rd["ContextMenuHintStyle"] as Style;
 
-            _panel = new StackPanel { MinWidth = 220, Background = null };
+            _panel = new StackPanel { MinWidth = 200, Background = null };
 
             _hintsHeader = new TextBlock
             {
-                Foreground = new SolidColorBrush(Color.FromRgb(140, 140, 150)),
-                FontSize = 9,
-                Margin = new Thickness(12, 8, 12, 4),
-                TextWrapping = TextWrapping.Wrap,
+                Style = hintStyle,
                 Visibility = Visibility.Collapsed
             };
             _panel.Children.Add(_hintsHeader);
 
             _emptyTrackHeader = new TextBlock
             {
-                Foreground = new SolidColorBrush(Color.FromRgb(140, 200, 140)),
-                FontSize = 9,
-                Margin = new Thickness(12, 8, 12, 4),
-                TextWrapping = TextWrapping.Wrap,
+                Style = hintStyle,
+                Foreground = new SolidColorBrush(Color.FromRgb(120, 129, 255)),
                 Visibility = Visibility.Collapsed
             };
             _panel.Children.Add(_emptyTrackHeader);
 
-            _panel.Children.Add(CreateItem("✂  Вырезать", "Cut", "Ctrl+X", itemStyle));
-            _panel.Children.Add(CreateItem("📄  Копировать", "Copy", "Ctrl+C", itemStyle));
-            _panel.Children.Add(CreateItem("📋  Вставить", "Paste", "Ctrl+V", itemStyle));
+            _panel.Children.Add(CreateItem("Вырезать", "Cut", "Ctrl+X", itemStyle));
+            _panel.Children.Add(CreateItem("Копировать", "Copy", "Ctrl+C", itemStyle));
+            _panel.Children.Add(CreateItem("Вставить", "Paste", "Ctrl+V", itemStyle));
             _panel.Children.Add(new Separator { Style = sepStyle });
-            _panel.Children.Add(CreateItem("🗑  Удалить", "Delete", "Del", itemStyle));
-            _panel.Children.Add(CreateItem("🧹  Очистить трек", "ClearTrack", null, itemStyle));
+            _panel.Children.Add(CreateItem("Удалить", "Delete", "Del", itemStyle));
+            _panel.Children.Add(CreateItem("Очистить трек", "ClearTrack", null, itemStyle));
             _panel.Children.Add(new Separator { Style = sepStyle });
             _panel.Children.Add(CreateItem("Выделить всё", "SelectAll", "Ctrl+D", itemStyle));
             _panel.Children.Add(CreateItem("Снять выделение", "ClearSelection", null, itemStyle));
             _panel.Children.Add(new Separator { Style = sepStyle });
-            _panel.Children.Add(CreateItem("↶  Отменить", "Undo", "Ctrl+Z", itemStyle));
-            _panel.Children.Add(CreateItem("↷  Повторить", "Redo", "Ctrl+Y", itemStyle));
+            _panel.Children.Add(CreateItem("Отменить", "Undo", "Ctrl+Z", itemStyle));
+            _panel.Children.Add(CreateItem("Повторить", "Redo", "Ctrl+Y", itemStyle));
 
             var border = new Border
             {
                 Background = Brushes.Transparent,
+                Padding = new Thickness(2),
                 Child = new Border
                 {
-                    Background = new SolidColorBrush(Color.FromRgb(45, 45, 48)),
+                    Background = new SolidColorBrush(Color.FromRgb(37, 37, 38)),
                     BorderBrush = new SolidColorBrush(Color.FromRgb(62, 62, 66)),
                     BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(4),
+                    CornerRadius = new CornerRadius(2),
+                    Padding = new Thickness(0, 4, 0, 4),
                     Child = _panel
                 }
             };
@@ -108,9 +106,9 @@ namespace AudioStudio.ContextMenus
                 var hk = new TextBlock
                 {
                     Text = hotkey,
-                    Foreground = new SolidColorBrush(Color.FromRgb(120, 129, 255)),
+                    Foreground = new SolidColorBrush(Color.FromRgb(110, 110, 130)),
                     FontSize = 10,
-                    Margin = new Thickness(12, 0, 0, 0),
+                    Margin = new Thickness(16, 0, 4, 0),
                     VerticalAlignment = VerticalAlignment.Center
                 };
                 Grid.SetColumn(hk, 1);

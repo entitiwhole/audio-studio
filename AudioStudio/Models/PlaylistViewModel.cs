@@ -73,6 +73,44 @@ namespace AudioStudio.Models
             return Math.Round(tickPos / step) * step;
         }
 
+        public static bool Overlaps(double startA, double endA, double startB, double endB) =>
+            startA < endB && endA > startB;
+
+        public double FindFreeStartTick(int trackIndex, double durationTicks, double preferredTick = 0, Guid? excludeId = null)
+        {
+            preferredTick = Math.Max(0, SnapToGrid(preferredTick));
+            var others = AudioClips
+                .Where(c => c.TrackIndex == trackIndex && c.Id != excludeId)
+                .OrderBy(c => c.StartTick)
+                .ToList();
+
+            if (!others.Any(c => Overlaps(preferredTick, preferredTick + durationTicks, c.StartTick, c.EndTick)))
+                return preferredTick;
+
+            double pos = preferredTick;
+            bool changed;
+            do
+            {
+                changed = false;
+                foreach (var other in others)
+                {
+                    if (Overlaps(pos, pos + durationTicks, other.StartTick, other.EndTick))
+                    {
+                        pos = SnapToGrid(other.EndTick);
+                        changed = true;
+                    }
+                }
+            } while (changed);
+
+            return pos;
+        }
+
+        public void ResolveClipPlacement(TrackItemViewModel clip, double preferredTick, int trackIndex)
+        {
+            clip.TrackIndex = Math.Clamp(trackIndex, 0, Math.Max(0, NumTracks - 1));
+            clip.StartTick = FindFreeStartTick(clip.TrackIndex, clip.DurationTicks, preferredTick, clip.Id);
+        }
+
         public double TicksPerSecond => Bpm * PPQN / 60.0;
 
         public double TickToSeconds(double tick) => tick / TicksPerSecond;

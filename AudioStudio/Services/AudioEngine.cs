@@ -22,6 +22,7 @@ public class AudioEngine
     
     private readonly Stopwatch _clock = new();
     private float _seekTime;
+    private bool _manualStop;
     
     public event Action? OnPlaybackStopped;
         public event Action<double>? OnTimeChanged;
@@ -85,11 +86,19 @@ public class AudioEngine
         _waveOut = new WasapiOut(AudioClientShareMode.Shared, 50);
         _waveOut.Init(_mixer);
         
-        _waveOut.PlaybackStopped += (s, e) =>
+        _waveOut.PlaybackStopped += OnWaveOutPlaybackStopped;
+    }
+
+    private void OnWaveOutPlaybackStopped(object? sender, StoppedEventArgs e)
+    {
+        _clock.Stop();
+        if (_manualStop)
         {
-            _clock.Stop();
-            OnPlaybackStopped?.Invoke();
-        };
+            _manualStop = false;
+            return;
+        }
+
+        OnPlaybackStopped?.Invoke();
     }
     
     // Legacy support for old AudioClip
@@ -123,6 +132,7 @@ public class AudioEngine
 
     public void Stop()
     {
+        _manualStop = true;
         _waveOut?.Stop();
         _clock.Reset();
         CurrentTime = _seekTime;
@@ -139,8 +149,12 @@ public class AudioEngine
             float timeFromClipStart = Math.Max(0, time - provider.StartTime);
             provider.Seek(timeFromClipStart);
         }
-        
-        _clock.Restart();
+
+        if (_clock.IsRunning)
+            _clock.Restart();
+        else
+            _clock.Reset();
+
         OnTimeChanged?.Invoke(CurrentTime);
     }
     
@@ -193,11 +207,7 @@ public class AudioEngine
         _waveOut = new WasapiOut(AudioClientShareMode.Shared, 50);
         _waveOut.Init(_mixer);
         
-        _waveOut.PlaybackStopped += (s, e) =>
-        {
-            _clock.Stop();
-            OnPlaybackStopped?.Invoke();
-        };
+        _waveOut.PlaybackStopped += OnWaveOutPlaybackStopped;
         
         _waveOut.Play();
         _clock.Start();

@@ -44,7 +44,7 @@ namespace AudioStudio.Views
         private Line? _playheadLine;
         private Rectangle? _playheadHitArea;
         private readonly TranslateTransform _playheadTransform = new();
-        private double _playheadSeconds = -1;
+        private double _playheadSeconds = 0;
         private double _lastPlayheadX = double.NaN;
         private bool _isDraggingPlayhead;
         private double _playheadDragStartX;
@@ -84,7 +84,8 @@ namespace AudioStudio.Views
             _model.AudioClips.CollectionChanged += OnClipsChanged;
             AllowDrop = true;
             Drop += OnDrop;
-            SizeChanged += (s, e) => DrawGridLines();
+            SizeChanged += (_, _) => RefreshViewportLayout();
+            MainScroller.SizeChanged += (_, _) => RefreshViewportLayout();
 
             var playheadBrush = new SolidColorBrush(Color.FromRgb(255, 80, 80));
             playheadBrush.Freeze();
@@ -104,10 +105,9 @@ namespace AudioStudio.Views
 
             _playheadHitArea = new Rectangle
             {
-                Width = 14,
+                Width = 20,
                 Fill = Brushes.Transparent,
                 Cursor = Cursors.SizeWE,
-                Visibility = Visibility.Collapsed,
                 IsHitTestVisible = true
             };
             _playheadHitArea.MouseLeftButtonDown += PlayheadHit_MouseLeftButtonDown;
@@ -116,7 +116,21 @@ namespace AudioStudio.Views
             _playheadHitArea.MouseLeave += PlayheadHit_MouseLeave;
 
             PlayheadLayer.Children.Add(_playheadLine);
-            PlayheadLayer.Children.Add(_playheadHitArea);
+            ClipLayer.Children.Add(_playheadHitArea);
+            Panel.SetZIndex(_playheadHitArea, 50);
+
+            Loaded += (_, _) =>
+            {
+                UpdateContentSize();
+                SetPlayheadTime(0);
+            };
+
+            ClipLayer.MouseMove += ClipLayer_PlayheadMouseMove;
+            ClipLayer.MouseLeftButtonUp += ClipLayer_PlayheadMouseUp;
+            MainScroller.PreviewMouseLeftButtonDown += MainScroller_PreviewMouseLeftButtonDown;
+            MainScroller.PreviewMouseLeftButtonUp += MainScroller_PreviewMouseLeftButtonUp;
+            MainScroller.MouseMove += ClipLayer_PlayheadMouseMove;
+            MainScroller.MouseLeftButtonUp += ClipLayer_PlayheadMouseUp;
         }
 
         public PlaylistViewModel Model
@@ -137,6 +151,19 @@ namespace AudioStudio.Views
         {
             _needsRebuild = true;
             RebuildIfNeeded();
+        }
+
+        /// <summary>Пересчёт ширины контента и сетки при изменении области просмотра (сплиттер, ресайз окна).</summary>
+        public void RefreshViewportLayout()
+        {
+            UpdateContentSize();
+            if (_trackBgRects.Count == _model.NumTracks)
+                UpdateTrackBackgroundWidths();
+            else if (_model.NumTracks > 0)
+                DrawTrackBackgrounds();
+            InvalidateGridCache();
+            DrawGridLines(force: true);
+            UpdatePlayheadPosition();
         }
 
         public void InsertClip(TrackItemViewModel clip, float[] peaks)
@@ -200,7 +227,11 @@ namespace AudioStudio.Views
         {
             var clip = _model.AudioClips.FirstOrDefault(c => c.Id == clipId);
             if (clip == null) return;
+            if (_activeClip?.Id == clipId)
+                CancelActiveInteraction(revertChanges: true);
             if (_selectedClipId == clipId) _selectedClipId = null;
+            if (_rangeSelClipId == clipId)
+                ClearTimeSelection();
             _peaksCache.Remove(clipId);
             _model.AudioClips.Remove(clip);
         }
@@ -243,10 +274,17 @@ namespace AudioStudio.Views
         {
             if (!_needsRebuild) return;
 
+            CancelActiveInteraction(revertChanges: true);
+
             _needsRebuild = false;
             TrackBgLayer.Children.Clear();
             ClipLayer.Children.Clear();
             _clipVisuals.Clear();
+            if (_playheadHitArea != null)
+            {
+                ClipLayer.Children.Add(_playheadHitArea);
+                Panel.SetZIndex(_playheadHitArea, 50);
+            }
 
             UpdateContentSize();
             DrawTrackBackgrounds();
@@ -259,23 +297,76 @@ namespace AudioStudio.Views
             }
 
             DrawGridLines();
+            if (_playheadSeconds >= 0)
+                UpdatePlayheadPosition();
+            RefreshTimeSelectionAfterRebuild();
         }
 
-        private void UpdateContentSize()
+        private void RefreshTimeSelectionAfterRebuild()
+        {
+            if (_rangeSelClipId.HasValue
+                && _model.AudioClips.All(c => c.Id != _rangeSelClipId.Value))
+            {
+                ClearTimeSelection();
+                return;
+            }
+
+            DrawTimeSelection();
+        }
+
+        private static bool IsClipBorder(DependencyObject? source)
+        {
+            while (source != null)
+            {
+                if (source is Border { Tag: Guid })
+                    return true;
+                source = VisualTreeHelper.GetParent(source);
+            }
+            return false;
+        }
+
+        private double GetViewportWidth()
+        {
+            double vpW = MainScroller.ViewportWidth;
+            if (vpW <= 0 || double.IsNaN(vpW))
+                vpW = MainScroller.ActualWidth;
+            if (vpW <= 0 || double.IsNaN(vpW))
+                vpW = ActualWidth;
+            return vpW;
+        }
+
+        private double GetContentWidthPx()
         {
             double maxTicks = 0;
             foreach (var clip in _model.AudioClips)
             {
-                double end = clip.EndTick;
-                if (end > maxTicks) maxTicks = end;
+                if (clip.EndTick > maxTicks)
+                    maxTicks = clip.EndTick;
             }
-            double vpW = MainScroller.ViewportWidth;
-            if (double.IsNaN(vpW)) vpW = 0;
+
+            double contentW = Math.Max(maxTicks * _model.ZoomX + 200, GetViewportWidth());
+            if (double.IsNaN(contentW) || double.IsInfinity(contentW))
+                contentW = 200;
+            return contentW;
+        }
+
+        /// <summary>Длительность видимой области таймлайна (для перемещения playhead без клипов).</summary>
+        public double GetTimelineDurationSeconds()
+        {
+            double pps = PixelsPerSecond;
+            if (pps <= 1e-6) return 10;
+            return Math.Max(GetContentWidthPx() / pps, 10);
+        }
+
+        private void UpdateContentSize()
+        {
+            double contentW = GetContentWidthPx();
             double vpH = MainScroller.ViewportHeight;
-            if (double.IsNaN(vpH)) vpH = 0;
-            double contentW = Math.Max(maxTicks * _model.ZoomX + 200, vpW);
+            if (vpH <= 0 || double.IsNaN(vpH))
+                vpH = MainScroller.ActualHeight;
+            if (vpH <= 0 || double.IsNaN(vpH))
+                vpH = ActualHeight;
             double contentH = Math.Max(_model.TotalHeight, vpH);
-            if (double.IsNaN(contentW) || double.IsInfinity(contentW)) contentW = 200;
             if (double.IsNaN(contentH) || double.IsInfinity(contentH)) contentH = 200;
             ContentGrid.Width = contentW;
             ContentGrid.Height = contentH;
@@ -345,19 +436,30 @@ namespace AudioStudio.Views
 
         private void PlayheadHit_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (_playheadSeconds < 0) return;
+            if (_dragMode != DragMode.None)
+                return;
+
+            if (_playheadSeconds < 0)
+                _playheadSeconds = 0;
             _isDraggingPlayhead = true;
-            _playheadDragStartX = e.GetPosition(PlayheadLayer).X;
+            _playheadDragStartX = e.GetPosition(ClipLayer).X;
             _playheadDragStartSeconds = _playheadSeconds;
-            _playheadHitArea?.CaptureMouse();
+            Mouse.OverrideCursor = Cursors.SizeWE;
+            MainScroller.CaptureMouse();
             e.Handled = true;
         }
+
+        private void ClipLayer_PlayheadMouseMove(object sender, MouseEventArgs e) =>
+            PlayheadHit_MouseMove(sender, e);
+
+        private void ClipLayer_PlayheadMouseUp(object sender, MouseButtonEventArgs e) =>
+            PlayheadHit_MouseLeftButtonUp(sender, e);
 
         private void PlayheadHit_MouseMove(object sender, MouseEventArgs e)
         {
             if (!_isDraggingPlayhead || e.LeftButton != MouseButtonState.Pressed) return;
-            double x = e.GetPosition(PlayheadLayer).X;
-            double seconds = PixelXToSeconds(_playheadDragStartSeconds * PixelsPerSecond + (x - _playheadDragStartX));
+            double x = Math.Max(0, e.GetPosition(ClipLayer).X);
+            double seconds = PixelXToSeconds(x);
             _lastPlayheadX = double.NaN;
             _playheadSeconds = seconds;
             UpdatePlayheadPosition();
@@ -381,7 +483,11 @@ namespace AudioStudio.Views
         {
             if (!_isDraggingPlayhead) return;
             _isDraggingPlayhead = false;
-            _playheadHitArea?.ReleaseMouseCapture();
+            Mouse.OverrideCursor = null;
+            if (ClipLayer.IsMouseCaptured)
+                ClipLayer.ReleaseMouseCapture();
+            if (MainScroller.IsMouseCaptured)
+                MainScroller.ReleaseMouseCapture();
         }
 
         private void InvalidateGridCache()
@@ -572,6 +678,7 @@ namespace AudioStudio.Views
 
             Canvas.SetLeft(border, x);
             Canvas.SetTop(border, y);
+            Panel.SetZIndex(border, 100);
 
             border.MouseLeftButtonDown += Clip_MouseLeftButtonDown;
             border.MouseRightButtonDown += Clip_MouseRightButtonDown;
@@ -775,21 +882,68 @@ namespace AudioStudio.Views
             return (track, tick);
         }
 
-        private void ClipLayer_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private bool HitTestClipAt(Point posInClipLayer)
         {
-            if (e.OriginalSource is not Canvas) return;
-            Point pos = e.GetPosition(ClipLayer);
-            var (track, tick) = GetEmptyAreaHit(pos);
+            foreach (var clip in _model.AudioClips)
+            {
+                double left = clip.StartTick * _model.ZoomX;
+                double top = clip.TrackIndex * _model.TrackHeight + 3;
+                double w = Math.Max(4, clip.DurationTicks * _model.ZoomX);
+                double h = _model.TrackHeight - 6;
+                if (posInClipLayer.X >= left && posInClipLayer.X <= left + w
+                    && posInClipLayer.Y >= top && posInClipLayer.Y <= top + h)
+                    return true;
+            }
+            return false;
+        }
+
+        private void MainScroller_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (IsClipBorder(e.OriginalSource as DependencyObject))
+                return;
+
+            if (_dragMode != DragMode.None)
+                return;
+
+            var posOnClip = e.GetPosition(ClipLayer);
+            if (posOnClip.X < 0 || posOnClip.Y < 0
+                || posOnClip.X > ClipLayer.ActualWidth || posOnClip.Y > ClipLayer.ActualHeight)
+                return;
+
+            if (HitTestClipAt(posOnClip))
+                return;
+
+            var (track, tick) = GetEmptyAreaHit(posOnClip);
+            double seconds = _model.TickToSeconds(tick);
+
+            double playheadX = _model.SecondsToTick(Math.Max(0, _playheadSeconds)) * _model.ZoomX;
+            if (Math.Abs(posOnClip.X - playheadX) <= 10)
+            {
+                PlayheadHit_MouseLeftButtonDown(_playheadHitArea!, e);
+                e.Handled = true;
+                return;
+            }
+
             EmptyAreaInteracted?.Invoke(track, tick, false);
             if (Keyboard.Modifiers == ModifierKeys.Control) return;
-            double seconds = _model.TickToSeconds(tick);
+
+            SetPlayheadTime(seconds);
             SeekRequested?.Invoke(seconds);
             e.Handled = true;
         }
 
+        private void MainScroller_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left) return;
+            if (_dragMode != DragMode.None)
+                EndDrag();
+            EndPlayheadDrag();
+        }
+
         private void ClipLayer_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (e.OriginalSource is not Canvas) return;
+            if (IsClipBorder(e.OriginalSource as DependencyObject))
+                return;
             Point pos = e.GetPosition(ClipLayer);
             var (track, tick) = GetEmptyAreaHit(pos);
             EmptyAreaInteracted?.Invoke(track, tick, true);
@@ -816,7 +970,6 @@ namespace AudioStudio.Views
                 _dragStartPoint = pos;
                 _isDragging = false;
                 UpdateRangeSelectionVisual();
-                ClipLayer.CaptureMouse();
                 e.Handled = true;
                 return;
             }
@@ -827,7 +980,6 @@ namespace AudioStudio.Views
             _dragStartTrack = _activeClip.TrackIndex;
             _dragStartDuration = _activeClip.DurationTicks;
             _isDragging = false;
-            ClipLayer.CaptureMouse();
             e.Handled = true;
         }
 
@@ -847,6 +999,15 @@ namespace AudioStudio.Views
         {
             if (_activeClip == null || _dragMode == DragMode.None) return;
 
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                if (_isDragging)
+                    CancelActiveInteraction(revertChanges: true);
+                else
+                    CancelActiveInteraction(revertChanges: false);
+                return;
+            }
+
             Point pos = e.GetPosition(ClipLayer);
             double dx = pos.X - _dragStartPoint.X;
             double dy = pos.Y - _dragStartPoint.Y;
@@ -854,7 +1015,10 @@ namespace AudioStudio.Views
             if (_dragMode == DragMode.SelectRange)
             {
                 if (!_isDragging && (Math.Abs(dx) > 2 || Math.Abs(dy) > 2))
+                {
                     _isDragging = true;
+                    ClipLayer.CaptureMouse();
+                }
                 double clipLeftPx = _activeClip.StartTick * _model.ZoomX;
                 double clipW = _activeClip.DurationTicks * _model.ZoomX;
                 _selectEndLocalX = Math.Clamp(pos.X - clipLeftPx, 0, clipW);
@@ -863,7 +1027,10 @@ namespace AudioStudio.Views
             }
 
             if (!_isDragging && (Math.Abs(dx) > 3 || Math.Abs(dy) > 3))
+            {
                 _isDragging = true;
+                ClipLayer.CaptureMouse();
+            }
 
             if (!_isDragging) return;
 
@@ -918,8 +1085,9 @@ namespace AudioStudio.Views
             }
             else if (_dragMode == DragMode.Move)
             {
-                _activeClip.StartTick = _model.SnapToGrid(_activeClip.StartTick);
-                _activeClip.StartTick = Math.Max(0, _activeClip.StartTick);
+                double preferredTick = Math.Max(0, _model.SnapToGrid(_activeClip.StartTick));
+                int preferredTrack = _activeClip.TrackIndex;
+                _model.ResolveClipPlacement(_activeClip, preferredTick, preferredTrack);
                 UpdateClipVisual(_activeClip);
                 UpdateContentSize();
                 RefreshTrackBackgrounds();
@@ -955,7 +1123,39 @@ namespace AudioStudio.Views
             _dragMode = DragMode.None;
             _activeClip = null;
             _isDragging = false;
-            ClipLayer.ReleaseMouseCapture();
+            if (ClipLayer.IsMouseCaptured)
+                ClipLayer.ReleaseMouseCapture();
+        }
+
+        private void CancelActiveInteraction(bool revertChanges)
+        {
+            if (revertChanges && _isDragging && _activeClip != null)
+            {
+                if (_dragMode == DragMode.Move)
+                {
+                    _activeClip.StartTick = _dragStartTick;
+                    _activeClip.TrackIndex = _dragStartTrack;
+                    UpdateClipVisual(_activeClip);
+                }
+                else if (_dragMode == DragMode.ResizeRight)
+                {
+                    _activeClip.DurationTicks = _dragStartDuration;
+                    UpdateClipVisual(_activeClip);
+                }
+            }
+
+            if (_dragMode == DragMode.SelectRange)
+            {
+                SelectionLayer.Children.Clear();
+                _rangeSelectionRect = null;
+            }
+
+            _dragMode = DragMode.None;
+            _activeClip = null;
+            _isDragging = false;
+            EndPlayheadDrag();
+            if (ClipLayer.IsMouseCaptured)
+                ClipLayer.ReleaseMouseCapture();
         }
 
         public void SetTimeSelection(Guid? clipId, double startSec, double endSec)
@@ -1061,6 +1261,8 @@ namespace AudioStudio.Views
 
         private void OnDrop(object sender, DragEventArgs e)
         {
+            CancelActiveInteraction(revertChanges: true);
+
             Point pos = e.GetPosition(this);
             double scrollX = MainScroller.HorizontalOffset;
             double tickPos = (pos.X + scrollX) / _model.ZoomX;

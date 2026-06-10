@@ -33,7 +33,11 @@ namespace AudioStudio
             {
                 Log($"Dispatcher unhandled: {args.Exception.Message}");
                 Log($"Dispatcher stack: {args.Exception.StackTrace}");
-                args.Handled = true;
+                // Не глотаем ошибки запуска — иначе процесс висит в диспетчере без окна
+                var isStartupFailure = Current?.MainWindow == null
+                    || args.Exception is System.Windows.Markup.XamlParseException;
+                if (!isStartupFailure)
+                    args.Handled = true;
             };
             TaskScheduler.UnobservedTaskException += (s, args) =>
             {

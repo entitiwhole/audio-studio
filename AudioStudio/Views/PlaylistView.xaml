@@ -10,14 +10,13 @@
             <Canvas x:Name="GridLayer"/>
             <Canvas x:Name="TrackBgLayer"/>
             <Canvas x:Name="ClipLayer"
-                    Background="Transparent"
+                    Background="#01000000"
                     MouseMove="ClipLayer_MouseMove"
                     MouseUp="ClipLayer_MouseUp"
                     MouseLeave="ClipLayer_MouseLeave"
-                    MouseLeftButtonDown="ClipLayer_MouseLeftButtonDown"
                     MouseRightButtonDown="ClipLayer_MouseRightButtonDown"/>
             <Canvas x:Name="SelectionLayer" IsHitTestVisible="False"/>
-            <Canvas x:Name="PlayheadLayer" IsHitTestVisible="True"/>
+            <Canvas x:Name="PlayheadLayer" Background="{x:Null}" IsHitTestVisible="False"/>
         </Grid>
     </ScrollViewer>
 </UserControl>

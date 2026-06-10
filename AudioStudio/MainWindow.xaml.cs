@@ -13,7 +13,6 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using System.Windows.Documents;
-using System.Windows.Interop;
 using Microsoft.Win32;
 using NAudio.Dsp;
 using NAudio.Wave;
@@ -25,6 +24,7 @@ using Point = System.Windows.Point;
 using AudioStudio.Commands;
 using AudioStudio.ContextMenus;
 using AudioStudio.Controls;
+using AudioStudio.Services;
 
 namespace AudioStudio
 {
@@ -406,6 +406,7 @@ namespace AudioStudio
         private Guid? _playlistRangeClipId;
         private double _playlistRangeStartSec = -1;
         private double _playlistRangeEndSec = -1;
+        private string? _currentProjectPath;
         private readonly Dictionary<int, float[]> _spectrogramCache = new();
         private readonly Dictionary<int, WriteableBitmap> _spectrogramBitmaps = new();
         private readonly HashSet<int> _spectrogramDirty = new();
@@ -500,9 +501,7 @@ namespace AudioStudio
         
         public void ClearSelectionUI()
         {
-            BtnCut.IsEnabled = false;
-            BtnCopy.IsEnabled = false;
-            BtnDelete.IsEnabled = false;
+            EnableControls(HasPlayableContent());
             SetStatusText("Готово");
         }
         
@@ -660,19 +659,31 @@ namespace AudioStudio
             {
                 Dispatcher.Invoke(() =>
                 {
+                    if (!isPlaying)
+                        return;
+
                     isPlaying = false;
                     SetPlayIcon(false);
                     CompositionTarget.Rendering -= OnRenderFrame;
                     currentTime = 0;
+                    _audio.Seek(0);
                     DrawTimeline(rebuildTracks: false);
                     PlaylistViewControl.SetPlayheadTime(0);
                     SetStatusText("Воспроизведение завершено");
                 });
             };
             
+            PreviewKeyDown += MainWindow_PreviewKeyDown;
             KeyDown += MainWindow_KeyDown;
             KeyDown += MainWindow_KeyDown_Global;
             KeyUp += MainWindow_KeyUp_Global;
+
+            ContentRendered += (_, _) =>
+            {
+                if (WindowState == WindowState.Minimized)
+                    WindowState = WindowState.Normal;
+                Activate();
+            };
             
             Loaded += (s, e) =>
             {
@@ -712,8 +723,8 @@ namespace AudioStudio
                 TimeRulerControl.Cursor = Cursors.Hand;
                 TimeRulerControl.MouseLeftButtonDown += (_, e) =>
                 {
-                    double time = (e.GetPosition(TimeRulerControl).X + TimeRulerControl.ScrollOffset)
-                        / TimeRulerControl.PixelsPerSecond;
+                    double time = Math.Max(0, (e.GetPosition(TimeRulerControl).X + TimeRulerControl.ScrollOffset)
+                        / TimeRulerControl.PixelsPerSecond);
                     SeekToTime(time);
                     PlaylistViewControl.SetPlayheadTime(currentTime);
                 };
@@ -721,24 +732,75 @@ namespace AudioStudio
                 InitializeBrowser();
                 SetupTreeViewDragDrop();
                 ShowRingIdle();
+                PlaylistViewControl.SetPlayheadTime(0);
             };
             
             SizeChanged += (s, e) =>
             {
+                ClampBrowserPanelWidth();
                 if (!_isResizing && PlaylistViewControl.IsVisible)
-                    PlaylistViewControl.InvalidateAll();
+                {
+                    PlaylistViewControl.RefreshViewportLayout();
+                    SyncTimeRuler();
+                }
             };
         }
         
+        private Point _titleDragScreen;
+        private Point _titleDragWindow;
+
         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (e.ClickCount == 2)
             {
                 Maximize_Click(sender, e);
+                return;
             }
-            else
+
+            if (WindowState == WindowState.Maximized)
+                return;
+
+            _titleDragWindow = new Point(Left, Top);
+            _titleDragScreen = PointToScreen(e.GetPosition(this));
+
+            Mouse.OverrideCursor = Cursors.Arrow;
+
+            if (sender is UIElement element)
             {
-                DragMove();
+                element.CaptureMouse();
+                element.MouseMove += TitleBar_MouseMove;
+                element.MouseLeftButtonUp += TitleBar_MouseLeftButtonUp;
+            }
+
+            e.Handled = true;
+        }
+
+        private void TitleBar_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                TitleBar_EndDrag(sender);
+                return;
+            }
+
+            var screen = PointToScreen(e.GetPosition(this));
+            var delta = screen - _titleDragScreen;
+            Left = _titleDragWindow.X + delta.X;
+            Top = _titleDragWindow.Y + delta.Y;
+        }
+
+        private void TitleBar_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) =>
+            TitleBar_EndDrag(sender);
+
+        private void TitleBar_EndDrag(object sender)
+        {
+            Mouse.OverrideCursor = null;
+
+            if (sender is UIElement element)
+            {
+                element.MouseMove -= TitleBar_MouseMove;
+                element.MouseLeftButtonUp -= TitleBar_MouseLeftButtonUp;
+                element.ReleaseMouseCapture();
             }
         }
         
@@ -1231,7 +1293,7 @@ namespace AudioStudio
                 if (tracks[currentTrack].Samples.Length > 0)
                 {
                     var currentFile = Path.GetFileName(tracks[currentTrack].SourceFile ?? "");
-                    SetStatusText($"Выбран: {file.Name} | Двойной клик или drag -> Трек {currentTrack + 1} (заменит \"{currentFile}\")");
+                    SetStatusText($"Выбран: {file.Name} | Двойной клик или drag -> дорожка {currentTrack + 1} плейлиста");
                 }
                 else
                 {
@@ -1445,8 +1507,13 @@ namespace AudioStudio
         {
             var hotkeysText = @"ГОРЯЧИЕ КЛАВИШИ
 
+Файл:
+  Ctrl+O        - Добавить аудио
+  Ctrl+S        - Сохранить проект
+  Ctrl+Shift+S  - Сохранить как
+
 Воспроизведение:
-  Space     - Воспроизведение/Пауза
+  Space     - Воспроизведение / Стоп (с текущей позиции)
   Enter     - Стоп и в начало
 
 Клип на плейлисте:
@@ -1492,9 +1559,31 @@ namespace AudioStudio
             };
         }
 
+        private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Space && Keyboard.Modifiers == ModifierKeys.None && !IsTextInputFocused())
+            {
+                TogglePlayStopTransport();
+                e.Handled = true;
+            }
+        }
+
+        private void TogglePlayStopTransport()
+        {
+            if (isPlaying)
+                StopTransport(resetToStart: false);
+            else
+                StartPlayback();
+        }
+
         private void MainWindow_KeyDown(object sender, KeyEventArgs e)
         {
-            if (Keyboard.Modifiers == ModifierKeys.Control)
+            if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.S)
+            {
+                SaveProjectAs_Click(sender, e);
+                e.Handled = true;
+            }
+            else if (Keyboard.Modifiers == ModifierKeys.Control)
             {
                 switch (e.Key)
                 {
@@ -1504,16 +1593,16 @@ namespace AudioStudio
                     case Key.Z: Undo_Click(sender, e); break;
                     case Key.Y: Redo_Click(sender, e); break;
                     case Key.D: SelectAll(); break;
+                    case Key.O: AddAudio_Click(sender, e); e.Handled = true; break;
+                    case Key.S:
+                        SaveProject_Click(sender, e);
+                        e.Handled = true;
+                        break;
                 }
             }
             else if (e.Key == Key.Delete)
             {
                 Delete_Click(sender, e);
-            }
-            else if (e.Key == Key.Space)
-            {
-                Play_Click(sender, e);
-                e.Handled = true;
             }
             else if (e.Key == Key.Enter)
             {
@@ -2148,9 +2237,31 @@ namespace AudioStudio
         }
 
         // ========== Browser/Tracks Splitter ==========
+        private const double BrowserPanelMinWidth = 150;
+        private const double WorkspaceMinWidth = 200;
+        private const double SplitterColumnWidth = 4;
+
         private Point _splitterStart;
         private double _splitterStartWidth;
         private bool _isSplitterDragging = false;
+
+        private double GetMaxBrowserWidth()
+        {
+            double areaW = MainWorkspaceGrid?.ActualWidth ?? ActualWidth;
+            if (areaW <= 0) areaW = ActualWidth;
+            return Math.Max(BrowserPanelMinWidth, areaW - SplitterColumnWidth - WorkspaceMinWidth);
+        }
+
+        private void ClampBrowserPanelWidth()
+        {
+            if (BrowserColumn.Width.IsAbsolute)
+            {
+                double clamped = Math.Max(BrowserPanelMinWidth,
+                    Math.Min(BrowserColumn.Width.Value, GetMaxBrowserWidth()));
+                if (Math.Abs(clamped - BrowserColumn.Width.Value) > 0.5)
+                    BrowserColumn.Width = new GridLength(clamped);
+            }
+        }
         
         private void Splitter_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -2180,11 +2291,12 @@ namespace AudioStudio
                 var dx = pos.X - _splitterStart.X;
                 var newWidth = _splitterStartWidth + dx;
                 
-                // Ограничения
-                newWidth = Math.Max(150, newWidth);
-                newWidth = Math.Min(ActualWidth - 200, newWidth);
-                
+                newWidth = Math.Max(BrowserPanelMinWidth, newWidth);
+                newWidth = Math.Min(GetMaxBrowserWidth(), newWidth);
+
                 BrowserColumn.Width = new GridLength(newWidth);
+                PlaylistViewControl?.RefreshViewportLayout();
+                SyncTimeRuler();
             }
         }
         
@@ -2200,6 +2312,8 @@ namespace AudioStudio
                 border.ReleaseMouseCapture();
             }
             
+            PlaylistViewControl?.RefreshViewportLayout();
+            SyncTimeRuler();
             DrawTimeline(rebuildTracks: true);
             e.Handled = true;
         }
@@ -2350,16 +2464,30 @@ namespace AudioStudio
             _playlistViewModel.AudioClips.Any(c => !string.IsNullOrEmpty(c.FilePath)) ||
             tracks.Any(t => t.Samples.Length > 0);
 
-        private double GetTotalDuration()
+        private double GetClipPlaybackEndTick(Models.TrackItemViewModel clip)
+        {
+            double endTick = clip.EndTick;
+            if (!_clipSamplesCache.TryGetValue(clip.Id, out var samples) || samples.Length == 0)
+                return endTick;
+
+            int denom = clip.SampleRate * Math.Max(1, clip.Channels);
+            if (denom <= 0) return endTick;
+
+            double sampleTicks = _playlistViewModel.SecondsToTick(samples.Length / (double)denom);
+            return Math.Max(endTick, clip.StartTick + sampleTicks);
+        }
+
+        private double GetContentDuration()
         {
             if (_playlistViewModel.AudioClips.Any(c => !string.IsNullOrEmpty(c.FilePath)))
             {
                 double maxTicks = 0;
                 foreach (var clip in _playlistViewModel.AudioClips)
                 {
-                    if (clip.EndTick > maxTicks) maxTicks = clip.EndTick;
+                    double end = GetClipPlaybackEndTick(clip);
+                    if (end > maxTicks) maxTicks = end;
                 }
-                return Math.Max(_playlistViewModel.TickToSeconds(maxTicks), 10);
+                return _playlistViewModel.TickToSeconds(maxTicks);
             }
 
             double max = 0;
@@ -2368,7 +2496,14 @@ namespace AudioStudio
                 double end = track.StartTime + track.Duration;
                 if (end > max) max = end;
             }
-            return Math.Max(max, 10);
+            return max;
+        }
+
+        private double GetTotalDuration()
+        {
+            double content = GetContentDuration();
+            double timeline = PlaylistViewControl?.GetTimelineDurationSeconds() ?? 10;
+            return Math.Max(Math.Max(content, timeline), 10);
         }
 
         private void OnPlaylistClipsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
@@ -2399,7 +2534,7 @@ namespace AudioStudio
 
             try
             {
-                var samples = ReadAudioFileSamples(clip.FilePath);
+                var (samples, _, _, _) = ReadAudioFile(clip.FilePath);
                 _clipSamplesCache[clip.Id] = samples;
                 return samples;
             }
@@ -2409,45 +2544,58 @@ namespace AudioStudio
             }
         }
 
-        private static float[] ReadAudioFileSamples(string filePath)
+        private static (float[] Samples, int SampleRate, int Channels, double DurationSeconds) ReadAudioFile(string filePath)
         {
             using var reader = new AudioFileReader(filePath);
-            int estimated = (int)(reader.TotalTime.TotalSeconds * reader.WaveFormat.SampleRate * reader.WaveFormat.Channels);
+            int sampleRate = reader.WaveFormat.SampleRate;
+            int channels = Math.Max(1, reader.WaveFormat.Channels);
+            int estimated = (int)(reader.TotalTime.TotalSeconds * sampleRate * channels);
             estimated = Math.Clamp(estimated, 4096, 50_000_000);
             var allSamples = new List<float>(estimated);
             var buffer = new float[131072];
             int read;
             while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
                 allSamples.AddRange(buffer.AsSpan(0, read));
-            return allSamples.ToArray();
+            var samples = allSamples.ToArray();
+            double durationSec = samples.Length / (double)(sampleRate * channels);
+            return (samples, sampleRate, channels, durationSec);
         }
 
         private sealed record PlaylistClipPayload(Models.TrackItemViewModel Clip, float[] Samples, float[] Peaks);
 
-        private PlaylistClipPayload? BuildPlaylistClipPayload(string filePath, double tickPos, int trackIndex)
+        private PlaylistClipPayload? BuildPlaylistClipPayload(
+            string filePath,
+            double tickPos,
+            int trackIndex,
+            bool autoPlace = true,
+            Models.TrackItemViewModel? template = null)
         {
             try
             {
-                using var reader = new AudioFileReader(filePath);
-                double durationSec = reader.TotalTime.TotalSeconds;
-                double durationTicks = durationSec * _playlistViewModel.TicksPerSecond;
-                int sampleRate = reader.WaveFormat.SampleRate;
-                int channels = reader.WaveFormat.Channels;
-
-                var samples = ReadAudioFileSamples(filePath);
+                var (samples, sampleRate, channels, durationSec) = ReadAudioFile(filePath);
+                double durationTicks = _playlistViewModel.SecondsToTick(durationSec);
                 var peaks = ComputePeaksForClip(samples, 5000);
 
                 var clip = new Models.TrackItemViewModel
                 {
-                    Name = Path.GetFileName(filePath),
+                    Id = template?.Id ?? Guid.NewGuid(),
+                    Name = template?.Name ?? Path.GetFileName(filePath),
                     FilePath = filePath,
-                    SampleRate = sampleRate,
-                    Channels = channels,
+                    SampleRate = template?.SampleRate ?? sampleRate,
+                    Channels = template?.Channels ?? channels,
                     SourceDurationSeconds = durationSec,
-                    StartTick = _playlistViewModel.SnapToGrid(tickPos),
                     DurationTicks = Math.Max(Models.TrackItemViewModel.PPQN / 4, durationTicks),
                     TrackIndex = trackIndex
                 };
+
+                if (autoPlace)
+                    _playlistViewModel.ResolveClipPlacement(clip, tickPos, trackIndex);
+                else
+                {
+                    clip.TrackIndex = Math.Clamp(trackIndex, 0, Math.Max(0, _playlistViewModel.NumTracks - 1));
+                    clip.StartTick = _playlistViewModel.SnapToGrid(tickPos);
+                }
+
                 return new PlaylistClipPayload(clip, samples, peaks);
             }
             catch
@@ -2456,8 +2604,29 @@ namespace AudioStudio
             }
         }
 
+        private void ReconcileClipDurationsFromSamples()
+        {
+            foreach (var clip in _playlistViewModel.AudioClips)
+            {
+                if (!_clipSamplesCache.TryGetValue(clip.Id, out var samples) || samples.Length == 0)
+                    continue;
+
+                int denom = clip.SampleRate * Math.Max(1, clip.Channels);
+                if (denom <= 0) continue;
+
+                double sampleTicks = _playlistViewModel.SecondsToTick(samples.Length / (double)denom);
+                if (clip.DurationTicks >= sampleTicks - 0.5)
+                    continue;
+
+                clip.DurationTicks = sampleTicks;
+                PlaylistViewControl.UpdateClipLayout(clip);
+            }
+        }
+
         private void SyncPlaylistToEngine()
         {
+            ReconcileClipDurationsFromSamples();
+
             var clips = new List<AudioClipModel>();
             foreach (var item in _playlistViewModel.AudioClips)
             {
@@ -2724,7 +2893,7 @@ namespace AudioStudio
         private Models.TrackItemViewModel NewClipFromClipboard(double startTick, int trackIndex)
         {
             var cb = _playlistClipboard;
-            return new Models.TrackItemViewModel
+            var clip = new Models.TrackItemViewModel
             {
                 Id = Guid.NewGuid(),
                 Name = cb.Name,
@@ -2732,13 +2901,13 @@ namespace AudioStudio
                 SampleRate = cb.SampleRate,
                 Channels = cb.Channels,
                 SourceDurationSeconds = cb.Samples.Length / (double)(cb.SampleRate * Math.Max(1, cb.Channels)),
-                StartTick = _playlistViewModel.SnapToGrid(startTick),
                 DurationTicks = cb.DurationTicks > 0
                     ? cb.DurationTicks
                     : _playlistViewModel.SecondsToTick(cb.Samples.Length / (double)(cb.SampleRate * Math.Max(1, cb.Channels))),
-                TrackIndex = trackIndex,
                 Color = "#FF7881FF"
             };
+            _playlistViewModel.ResolveClipPlacement(clip, startTick, trackIndex);
+            return clip;
         }
 
         private Models.TrackItemViewModel? GetSelectedPlaylistClip() =>
@@ -2797,11 +2966,35 @@ namespace AudioStudio
             SetStatusText($"Удалён клип: {clip.Name}");
         }
 
-        private bool TryAddFileToPlaylist(string path, double tickPos = 0, int? trackIndex = null)
+        private void EnqueuePlaylistFiles(IReadOnlyList<string> paths, int trackIndex)
+        {
+            if (paths.Count == 0)
+                return;
+            AddPlaylistFileSequential(paths, trackIndex, 0);
+        }
+
+        private void AddPlaylistFileSequential(IReadOnlyList<string> paths, int trackIndex, int index)
+        {
+            if (index >= paths.Count)
+                return;
+
+            if (!TryAddFileToPlaylist(paths[index], 0, trackIndex, onCompleted: () =>
+                    AddPlaylistFileSequential(paths, trackIndex, index + 1)))
+            {
+                AddPlaylistFileSequential(paths, trackIndex, index + 1);
+            }
+        }
+
+        private bool TryAddFileToPlaylist(
+            string path,
+            double tickPos = 0,
+            int? trackIndex = null,
+            Action? onCompleted = null)
         {
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
             {
                 SetStatusText("Не удалось загрузить файл");
+                onCompleted?.Invoke();
                 return false;
             }
 
@@ -2812,26 +3005,32 @@ namespace AudioStudio
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        if (t.IsFaulted || t.Result == null)
+                        try
                         {
-                            SetStatusText("Не удалось загрузить файл");
-                            StopActivity();
-                            return;
-                        }
+                            if (t.IsFaulted || t.Result == null)
+                            {
+                                SetStatusText("Не удалось загрузить файл");
+                                return;
+                            }
 
-                        var payload = t.Result;
-                        _clipSamplesCache[payload.Clip.Id] = payload.Samples;
-                        PlaylistViewControl.InsertClip(payload.Clip, payload.Peaks);
-                        PlaylistViewControl.SelectClip(payload.Clip.Id);
-                        _commandManager.Record(new Commands.AddPlaylistClipCommand(
-                            this, CloneClipMeta(payload.Clip), payload.Samples));
-                        SetStatusText($"Добавлен: {payload.Clip.Name}");
-                        StopActivity($"Добавлен: {payload.Clip.Name}");
-                        SyncTimeRuler();
-                        RebuildMixer();
-                        EnableControls(true);
-                        UpdateCommandButtons();
-                        TotalTimeText.Text = FormatTime(GetTotalDuration());
+                            var payload = t.Result;
+                            _clipSamplesCache[payload.Clip.Id] = payload.Samples;
+                            PlaylistViewControl.InsertClip(payload.Clip, payload.Peaks);
+                            PlaylistViewControl.SelectClip(payload.Clip.Id);
+                            _commandManager.Record(new Commands.AddPlaylistClipCommand(
+                                this, CloneClipMeta(payload.Clip), payload.Samples));
+                            SetStatusText($"Добавлен: {payload.Clip.Name}");
+                            StopActivity($"Добавлен: {payload.Clip.Name}");
+                            SyncTimeRuler();
+                            RebuildMixer();
+                            EnableControls(true);
+                            UpdateCommandButtons();
+                            TotalTimeText.Text = FormatTime(GetTotalDuration());
+                        }
+                        finally
+                        {
+                            onCompleted?.Invoke();
+                        }
                     });
                 });
             return true;
@@ -2875,23 +3074,190 @@ namespace AudioStudio
             BtnPlay.IsEnabled = enable && hasAudio;
             BtnStop.IsEnabled = enable;
             BtnApply.IsEnabled = enable && (HasSelectedPlaylistClip() || tracks.Any(t => t.Samples.Length > 0));
-            BtnCut.IsEnabled = enable && SelectionManager.HasSelection;
-            BtnCopy.IsEnabled = enable && SelectionManager.HasSelection;
-            BtnPaste.IsEnabled = enable && ClipboardData != null;
-            BtnDelete.IsEnabled = enable && SelectionManager.HasSelection;
+
+            bool canEdit = enable && HasSelection();
+            BtnCut.IsEnabled = canEdit;
+            BtnCopy.IsEnabled = canEdit;
+            BtnDelete.IsEnabled = canEdit;
+            BtnPaste.IsEnabled = enable && HasClipboard();
             UpdateCommandButtons();
         }
         
-        private void OpenFile_Click(object sender, RoutedEventArgs e)
+        private void AddAudio_Click(object sender, RoutedEventArgs e)
         {
-            var dialog = new Microsoft.Win32.OpenFileDialog 
-            { 
-                Filter = "Audio Files|*.wav;*.mp3;*.flac|All Files|*.*" 
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "Аудио|*.wav;*.mp3;*.flac;*.ogg;*.aiff;*.m4a|Все файлы|*.*",
+                Multiselect = true
+            };
+            if (dialog.ShowDialog() != true)
+                return;
+
+            int track = Math.Max(0, Math.Min(_playlistViewModel.NumTracks - 1, selectedTrackIndex));
+            EnqueuePlaylistFiles(dialog.FileNames, track);
+        }
+
+        private void NewProject_Click(object sender, RoutedEventArgs e)
+        {
+            if (!ConfirmDiscardProject())
+                return;
+
+            ClearPlaylistProject();
+            _currentProjectPath = null;
+            Title = "BF^Studio — Новый проект";
+            SetStatusText("Новый проект");
+        }
+
+        private void OpenProject_Click(object sender, RoutedEventArgs e)
+        {
+            if (!ConfirmDiscardProject())
+                return;
+
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = $"Проект BF Studio|*{ProjectService.Extension}|Все файлы|*.*",
+                InitialDirectory = ProjectService.ProjectsDirectory
             };
             if (dialog.ShowDialog() == true)
+                LoadProjectFromFile(dialog.FileName);
+        }
+
+        private void SaveProject_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_currentProjectPath))
             {
-                TryAddFileToPlaylist(dialog.FileName);
+                SaveProjectAs_Click(sender, e);
+                return;
             }
+
+            try
+            {
+                SaveProjectToFile(_currentProjectPath);
+                SetStatusText($"Сохранено: {Path.GetFileName(_currentProjectPath)}");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Не удалось сохранить проект:\n{ex.Message}", "Сохранение",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void SaveProjectAs_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter = $"Проект BF Studio|*{ProjectService.Extension}|Все файлы|*.*",
+                InitialDirectory = ProjectService.ProjectsDirectory,
+                FileName = string.IsNullOrEmpty(_currentProjectPath)
+                    ? Path.GetFileName(ProjectService.GetDefaultProjectPath("Untitled"))
+                    : Path.GetFileName(_currentProjectPath)
+            };
+            if (dialog.ShowDialog() != true)
+                return;
+
+            try
+            {
+                SaveProjectToFile(dialog.FileName);
+                _currentProjectPath = dialog.FileName;
+                Title = $"BF^Studio — {Path.GetFileNameWithoutExtension(dialog.FileName)}";
+                SetStatusText($"Сохранено: {Path.GetFileName(dialog.FileName)}");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Не удалось сохранить проект:\n{ex.Message}", "Сохранение",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void HelpAbout_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show(
+                "BF^Studio by PRYTEK Vision\n\nDAW с плейлистом, микшером и браузером аудио.",
+                "О программе",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+
+        private bool ConfirmDiscardProject()
+        {
+            if (!_playlistViewModel.AudioClips.Any())
+                return true;
+
+            var result = MessageBox.Show(
+                "Текущий проект не сохранён. Продолжить и потерять изменения?",
+                "Проект",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+            return result == MessageBoxResult.Yes;
+        }
+
+        private void ClearPlaylistProject()
+        {
+            if (isPlaying)
+                Stop_Click(this, new RoutedEventArgs());
+
+            var clipIds = _playlistViewModel.AudioClips.Select(c => c.Id).ToList();
+            foreach (var id in clipIds)
+                RemovePlaylistClipInternal(id);
+
+            _playlistViewModel.AudioClips.Clear();
+            _clipSamplesCache.Clear();
+            PlaylistViewControl.InvalidateAll();
+            RebuildMixer();
+            TotalTimeText.Text = FormatTime(GetTotalDuration());
+            EnableControls(HasPlayableContent());
+        }
+
+        private void SaveProjectToFile(string projectFilePath)
+        {
+            string name = Path.GetFileNameWithoutExtension(projectFilePath);
+            var snapshot = ProjectService.CreateSnapshot(_playlistViewModel, _playlistViewModel.AudioClips, name);
+            ProjectService.Save(projectFilePath, snapshot, copyAudioFiles: true);
+        }
+
+        private void LoadProjectFromFile(string projectFilePath)
+        {
+            var project = ProjectService.Load(projectFilePath);
+            ClearPlaylistProject();
+
+            _playlistViewModel.Bpm = project.Bpm;
+            _playlistViewModel.NumTracks = Math.Max(1, project.NumTracks);
+            _currentProjectPath = projectFilePath;
+            Title = $"BF^Studio — {project.Name}";
+
+            foreach (var pc in project.Clips)
+            {
+                if (string.IsNullOrWhiteSpace(pc.FilePath) || !File.Exists(pc.FilePath))
+                    continue;
+
+                var template = new Models.TrackItemViewModel
+                {
+                    Id = pc.Id == Guid.Empty ? Guid.NewGuid() : pc.Id,
+                    Name = pc.Name,
+                    SampleRate = pc.SampleRate,
+                    Channels = pc.Channels
+                };
+
+                var payload = BuildPlaylistClipPayload(pc.FilePath, pc.StartTick, pc.TrackIndex, autoPlace: false, template);
+                if (payload == null)
+                    continue;
+
+                _clipSamplesCache[payload.Clip.Id] = payload.Samples;
+                PlaylistViewControl.InsertClip(payload.Clip, payload.Peaks);
+            }
+
+            PlaylistViewControl.InvalidateAll();
+            SyncTimeRuler();
+            RebuildMixer();
+            TotalTimeText.Text = FormatTime(GetTotalDuration());
+            EnableControls(HasPlayableContent());
+            SetStatusText($"Открыт проект: {project.Name}");
+        }
+
+        private static bool IsTextInputFocused()
+        {
+            return Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase
+                or System.Windows.Controls.TextBox;
         }
 
         private void LoadFileToTrack(string path)
@@ -3189,13 +3555,14 @@ namespace AudioStudio
         
         private void SeekToTime(double targetTime)
         {
-            if (!HasPlayableContent()) return;
-
             targetTime = Math.Max(0, Math.Min(targetTime, GetTotalDuration()));
-            _audio.Seek((float)targetTime);
             currentTime = targetTime;
-            UpdatePlayheadUI();
             PlaylistViewControl.SetPlayheadTime(currentTime);
+            CurrentTimeText.Text = FormatTime(currentTime);
+
+            _audio.Seek((float)targetTime);
+
+            UpdatePlayheadUI();
         }
         
         // Оптимизация: вынесено обновление UI playhead
@@ -3242,6 +3609,12 @@ namespace AudioStudio
         {
             if (PlaylistViewControl.IsDraggingPlayhead)
                 return;
+
+            if (!isPlaying && !_audio.IsPlaying)
+            {
+                PlaylistViewControl.SetPlayheadTime(currentTime);
+                return;
+            }
 
             // Синхронизация playhead с AudioEngine (источник истины)
             _audio.UpdateTime();
@@ -3550,30 +3923,58 @@ namespace AudioStudio
             }
             else
             {
-                if (currentTime >= GetTotalDuration())
-                    currentTime = 0;
-
-                _audio.Seek((float)currentTime);
-                PlaylistViewControl.SetPlayheadTime(currentTime);
-                _audio.Play();
-                isPlaying = true;
-                SetPlayIcon(true);
-                CompositionTarget.Rendering += OnRenderFrame;
-                SetStatusText("Воспроизведение...");
+                StartPlayback();
             }
         }
 
-        private void Stop_Click(object sender, RoutedEventArgs e)
+        private void StartPlayback()
         {
+            if (!HasPlayableContent())
+                return;
+
+            if (currentTime >= GetTotalDuration())
+                currentTime = 0;
+
+            _audio.Seek((float)currentTime);
+            PlaylistViewControl.SetPlayheadTime(currentTime);
+            _audio.Play();
+            isPlaying = true;
+            SetPlayIcon(true);
+            CompositionTarget.Rendering += OnRenderFrame;
+            SetStatusText("Воспроизведение...");
+        }
+
+        private void Stop_Click(object sender, RoutedEventArgs e) => StopTransport(resetToStart: true);
+
+        private void StopTransport(bool resetToStart)
+        {
+            if (isPlaying)
+            {
+                _audio.UpdateTime();
+                currentTime = _audio.CurrentTime;
+            }
+
             _audio.Stop();
+
+            if (resetToStart)
+            {
+                currentTime = 0;
+                _audio.Seek(0);
+                PlaylistViewControl.SetPlayheadTime(0);
+                SetStatusText("Остановлено");
+            }
+            else
+            {
+                _audio.Seek((float)currentTime);
+                PlaylistViewControl.SetPlayheadTime(currentTime);
+                SetStatusText("Пауза");
+            }
+
             isPlaying = false;
             SetPlayIcon(false);
             CompositionTarget.Rendering -= OnRenderFrame;
-            currentTime = 0;
             DrawTimeline(rebuildTracks: false);
-            PlaylistViewControl.SetPlayheadTime(0);
-            SetStatusText("Остановлено");
-            CurrentTimeText.Text = "00:00";
+            CurrentTimeText.Text = FormatTime(currentTime);
             TotalTimeText.Text = FormatTime(GetTotalDuration());
         }
 
@@ -3783,6 +4184,7 @@ namespace AudioStudio
                     this, plItem!.Id, plStart, removed, saveToClipboard: true));
                 ClearSelection();
                 SetStatusText($"Вырезано: {FormatTime((double)plLen / (plItem.SampleRate * plItem.Channels))}");
+                EnableControls(true);
                 return;
             }
 
@@ -3793,6 +4195,7 @@ namespace AudioStudio
                 _commandManager.Execute(new Commands.CutWholePlaylistClipCommand(this, item, samples));
                 ClearSelection();
                 SetStatusText($"Вырезано: {item.Name} — выберите дорожку и вставьте (Ctrl+V)");
+                EnableControls(true);
                 return;
             }
 
@@ -3820,6 +4223,7 @@ namespace AudioStudio
             SelectionManager.ClearSelection();
             ClearSelection();
             SetStatusText($"Вырезано: {FormatTime((double)length / (track.SampleRate * track.Channels))}");
+            EnableControls(true);
         }
 
         public void Copy_Click(object sender, RoutedEventArgs e)
@@ -3831,6 +4235,7 @@ namespace AudioStudio
                 Array.Copy(samples, plStart, chunk, 0, plLen);
                 SetSampleClipboard(chunk, plItem!.SampleRate, plItem.Channels);
                 SetStatusText($"Скопировано: {FormatTime((double)plLen / (plItem.SampleRate * plItem.Channels))}");
+                EnableControls(true);
                 return;
             }
 
@@ -3840,6 +4245,7 @@ namespace AudioStudio
                 var samples = LoadClipSamples(item);
                 SetPlaylistClipboardWholeClip(item, samples, wasCut: false);
                 SetStatusText($"Скопировано: {item.Name}");
+                EnableControls(true);
                 return;
             }
 
@@ -3859,6 +4265,7 @@ namespace AudioStudio
             ClipboardSampleRate = track.SampleRate;
 
             SetStatusText($"Скопировано: {FormatTime((double)length / (ClipboardSampleRate * ClipboardChannels))}");
+            EnableControls(true);
         }
 
         public void Paste_Click(object sender, RoutedEventArgs e)
@@ -3877,6 +4284,7 @@ namespace AudioStudio
                     this, newClip, data, wasCut));
                 PlaylistViewControl.SelectClip(newClip.Id);
                 SetStatusText($"Вставлено: {newClip.Name}");
+                EnableControls(true);
                 return;
             }
 
@@ -3893,6 +4301,7 @@ namespace AudioStudio
                     _commandManager.Execute(new Commands.PastePlaylistSamplesCommand(
                         this, target.Id, insertAt, data));
                     SetStatusText($"Вставлено: {FormatTime((double)data.Length / rate)}");
+                    EnableControls(true);
                     return;
                 }
             }
@@ -3919,6 +4328,7 @@ namespace AudioStudio
             DrawTimeline(rebuildTracks: true);
             
             SetStatusText($"Вставлено: {FormatTime((double)ClipboardData.Length / (ClipboardSampleRate * ClipboardChannels))}");
+            EnableControls(true);
         }
 
         public void Delete_Click(object sender, RoutedEventArgs e)
@@ -3933,12 +4343,14 @@ namespace AudioStudio
                     this, plItem!.Id, plStart, removed, saveToClipboard: false));
                 ClearSelection();
                 SetStatusText("Фрагмент удалён");
+                EnableControls(true);
                 return;
             }
 
             if (HasSelectedPlaylistClip())
             {
                 DeleteSelectedPlaylistClip();
+                EnableControls(true);
                 return;
             }
 
@@ -3965,6 +4377,7 @@ namespace AudioStudio
             SelectionManager.ClearSelection();
             ClearSelection();
             SetStatusText("Удалено");
+            EnableControls(true);
         }
 
         public void Undo_Click(object sender, RoutedEventArgs e)
@@ -4049,13 +4462,6 @@ namespace AudioStudio
             SetStatusText($"Трек {selectedTrackIndex + 1} очищен");
         }
 
-        private void SaveProject_Click(object sender, RoutedEventArgs e)
-        {
-            SetStatusText("Сохранение проекта...");
-            MessageBox.Show("Функция сохранения проекта будет добавлена", "Сохранение", MessageBoxButton.OK, MessageBoxImage.Information);
-            SetStatusText("Готово");
-        }
-
         private void Export_Click(object sender, RoutedEventArgs e)
         {
             SetStatusText("Экспорт...");
@@ -4133,12 +4539,7 @@ namespace AudioStudio
             var pl = _playlistViewModel;
             TimeRulerControl.Bpm = pl.Bpm;
             TimeRulerControl.PixelsPerSecond = pl.ZoomX * pl.TicksPerSecond;
-            double maxTicks = 0;
-            foreach (var clip in pl.AudioClips)
-            {
-                if (clip.EndTick > maxTicks) maxTicks = clip.EndTick;
-            }
-            TimeRulerControl.TotalDuration = Math.Max(10, pl.TickToSeconds(maxTicks));
+            TimeRulerControl.TotalDuration = GetTotalDuration();
             TimeRulerControl.ScrollOffset = PlaylistViewControl.HorizontalScrollOffset;
             TimeRulerControl.UpdateTicks();
             TotalTimeText.Text = FormatTime(GetTotalDuration());
@@ -4225,7 +4626,18 @@ namespace AudioStudio
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                try
+                {
+                    File.AppendAllText(@"C:\Temp\audiostream_debug.log",
+                        $"{DateTime.Now:HH:mm:ss.fff} [Instruments] {ex}\r\n");
+                }
+                catch { }
+
+                MessageBox.Show(
+                    "Не удалось открыть окно инструментов:\n" + ex.Message,
+                    "Инструменты",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
             }
         }
         

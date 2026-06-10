@@ -2,7 +2,7 @@
 ; Inno Setup 6
 
 #define MyAppName "BF^Studio"
-#define MyAppVersion "1.0.4"
+#define MyAppVersion "1.0.5"
 #define MyAppPublisher "PRYTEK Vision"
 #define SourcePath "E:\Atest1.0\AudioStudio\publish"
 
@@ -22,11 +22,11 @@ OutputBaseFilename=BFStudio-Setup-{#MyAppVersion}
 PrivilegesRequired=admin
 UninstallDisplayIcon={app}\AudioStudio.exe
 SetupIconFile=E:\Atest1.0\AudioStudio\AudioStudio\hd_067e60e1d37959fea8c10910f1bec3f4-_1_-1.ico
-VersionInfoVersion=1.0.4.0
+VersionInfoVersion=1.0.5.0
 VersionInfoCompany=PRYTEK Vision
 VersionInfoDescription=BF^Studio Installer
 VersionInfoProductName=BF^Studio
-VersionInfoProductVersion=1.0.4.0
+VersionInfoProductVersion=1.0.5.0
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
