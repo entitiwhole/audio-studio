@@ -370,6 +370,7 @@ namespace AudioStudio
         private string _activityBaseText = "";
         private int _dotsPhase;
         private DispatcherTimer? _popupUpdateTimer;
+        private DispatcherTimer? _activityPopupCloseTimer;
         private DispatcherTimer? _dotsTimer;
         private DispatcherTimer? _ringIdleTimer;
         private double _ringProgress;
@@ -453,7 +454,40 @@ namespace AudioStudio
         public bool HasSelectedPlaylistClip()
         {
             var clip = PlaylistViewControl?.GetSelectedClip();
-            return clip != null && !string.IsNullOrEmpty(clip.FilePath);
+            return clip != null;
+        }
+
+        public int SelectedPlaylistClipCount => PlaylistViewControl?.SelectedClipCount ?? 0;
+
+        public bool CanMergeSelectedPlaylistClips() => GetMergeDisabledReason() == null;
+
+        public string? GetMergeDisabledReason()
+        {
+            var clips = PlaylistViewControl?.GetSelectedClips();
+            if (clips == null || clips.Count < 2)
+                return "Выберите 2 или больше клипов на одной дорожке.\n\nCtrl+клик — добавить к выбору\nShift+клик — выбрать диапазон на дорожке";
+
+            if (clips.Select(c => c.TrackIndex).Distinct().Count() != 1)
+                return "Склеить можно только клипы на одной дорожке плейлиста.";
+
+            int sr = clips[0].SampleRate;
+            int ch = Math.Max(1, clips[0].Channels);
+            if (clips.Any(c => c.SampleRate != sr || Math.Max(1, c.Channels) != ch))
+                return "У выбранных клипов разный формат (sample rate или каналы).";
+
+            if (!clips.Any(c => TryGetCachedClipSamples(c, out var s) && s.Length > 0))
+                return "В выбранных клипах нет загруженного аудио.";
+
+            return null;
+        }
+
+        private bool TryGetCachedClipSamples(Models.TrackItemViewModel clip, out float[] samples)
+        {
+            if (_clipSamplesCache.TryGetValue(clip.Id, out samples!) && samples.Length > 0)
+                return true;
+
+            samples = LoadClipSamples(clip);
+            return samples.Length > 0;
         }
         
         public bool HasClipboard() =>
@@ -516,7 +550,7 @@ namespace AudioStudio
             _playlistRangeStartSec = -1;
             _playlistRangeEndSec = -1;
             PlaylistViewControl?.ClearTimeSelection();
-            PlaylistViewControl?.SelectClip(null, raiseEvent: false);
+            PlaylistViewControl?.ClearClipSelection();
 
             SelectionManager.SelectionStart = -1;
             SelectionManager.SelectionEnd = -1;
@@ -700,10 +734,11 @@ namespace AudioStudio
                     ShowPlaylistContextMenu(onClip: true, onEmptyTrack: false);
                 PlaylistViewControl.ClipRangeSelected += OnPlaylistClipRangeSelected;
                 PlaylistViewControl.ClipMoved += OnPlaylistClipMoved;
+                PlaylistViewControl.ClipsMoved += OnPlaylistClipsMoved;
                 PlaylistViewControl.ClipResized += OnPlaylistClipResized;
                 PlaylistViewControl.EmptyAreaInteracted += OnPlaylistEmptyAreaInteracted;
                 PlaylistViewControl.FileDropped += (path, tick, track) =>
-                    TryAddFileToPlaylist(path, tick, track);
+                    TryAddFileToPlaylist(path, tick, track, replaceClipsAtDropPoint: true);
                 PlaylistViewControl.SeekRequested += time =>
                 {
                     SeekToTime(time);
@@ -732,6 +767,7 @@ namespace AudioStudio
                 InitializeBrowser();
                 SetupTreeViewDragDrop();
                 ShowRingIdle();
+                SetupActivityPopupHover();
                 PlaylistViewControl.SetPlayheadTime(0);
             };
             
@@ -1315,7 +1351,7 @@ namespace AudioStudio
                 {
                     int targetTrack = selectedTrackIndex >= 0 ? selectedTrackIndex : 0;
                     if (targetTrack >= _playlistViewModel.NumTracks) targetTrack = 0;
-                    TryAddFileToPlaylist(file.FullPath, 0, targetTrack);
+                    EnqueuePlaylistFiles(new[] { file.FullPath }, targetTrack);
                     e.Handled = true;
                     return;
                 }
@@ -1513,16 +1549,21 @@ namespace AudioStudio
   Ctrl+Shift+S  - Сохранить как
 
 Воспроизведение:
-  Space     - Воспроизведение / Стоп (с текущей позиции)
+  Space     - Воспроизведение / Пауза
+  R         - Перезапуск с начала
+  K         - Стоп
   Enter     - Стоп и в начало
 
 Клип на плейлисте:
-  Ctrl+ЛКМ      - Выделить область на записи
+  Ctrl+клик        - Выделить несколько клипов
+  Shift+клик       - Выбрать диапазон на дорожке
+  Ctrl+Shift+ЛКМ   - Область на записи
 
 Редактирование:
   Ctrl+X    - Вырезать
   Ctrl+C    - Копировать
   Ctrl+V    - Вставить
+  ПКМ → Склеить выбранные клипы (2+ на одной дорожке)
   Ctrl+D    - Выделить всё
   Del       - Удалить выделенное
   Ctrl+Z    - Отменить
@@ -1561,10 +1602,29 @@ namespace AudioStudio
 
         private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Space && Keyboard.Modifiers == ModifierKeys.None && !IsTextInputFocused())
+            if (IsTextInputFocused())
+                return;
+
+            if (e.Key == Key.Space && Keyboard.Modifiers == ModifierKeys.None)
             {
                 TogglePlayStopTransport();
                 e.Handled = true;
+                return;
+            }
+
+            if (Keyboard.Modifiers != ModifierKeys.None)
+                return;
+
+            switch (e.Key)
+            {
+                case Key.R:
+                    Restart_Click(sender, e);
+                    e.Handled = true;
+                    break;
+                case Key.K:
+                    Stop_Click(sender, e);
+                    e.Handled = true;
+                    break;
             }
         }
 
@@ -2513,15 +2573,6 @@ namespace AudioStudio
                 foreach (Models.TrackItemViewModel item in e.OldItems)
                     _clipSamplesCache.Remove(item.Id);
             }
-            OnPlaylistChanged();
-        }
-
-        private void OnPlaylistChanged()
-        {
-            SyncTimeRuler();
-            RebuildMixer();
-            EnableControls(true);
-            TotalTimeText.Text = FormatTime(GetTotalDuration());
         }
 
         private float[] LoadClipSamples(Models.TrackItemViewModel clip)
@@ -2573,7 +2624,6 @@ namespace AudioStudio
             try
             {
                 var (samples, sampleRate, channels, durationSec) = ReadAudioFile(filePath);
-                double durationTicks = _playlistViewModel.SecondsToTick(durationSec);
                 var peaks = ComputePeaksForClip(samples, 5000);
 
                 var clip = new Models.TrackItemViewModel
@@ -2584,9 +2634,10 @@ namespace AudioStudio
                     SampleRate = template?.SampleRate ?? sampleRate,
                     Channels = template?.Channels ?? channels,
                     SourceDurationSeconds = durationSec,
-                    DurationTicks = Math.Max(Models.TrackItemViewModel.PPQN / 4, durationTicks),
                     TrackIndex = trackIndex
                 };
+
+                PlaylistIntegrity.EnsureDurationFromSamples(clip, samples, _playlistViewModel);
 
                 if (autoPlace)
                     _playlistViewModel.ResolveClipPlacement(clip, tickPos, trackIndex);
@@ -2604,8 +2655,9 @@ namespace AudioStudio
             }
         }
 
-        private void ReconcileClipDurationsFromSamples()
+        private HashSet<Guid> ReconcileClipDurationsFromSamples()
         {
+            var changed = new HashSet<Guid>();
             foreach (var clip in _playlistViewModel.AudioClips)
             {
                 if (!_clipSamplesCache.TryGetValue(clip.Id, out var samples) || samples.Length == 0)
@@ -2615,24 +2667,26 @@ namespace AudioStudio
                 if (denom <= 0) continue;
 
                 double sampleTicks = _playlistViewModel.SecondsToTick(samples.Length / (double)denom);
-                if (clip.DurationTicks >= sampleTicks - 0.5)
+                if (Math.Abs(clip.DurationTicks - sampleTicks) <= 0.5)
                     continue;
 
-                clip.DurationTicks = sampleTicks;
-                PlaylistViewControl.UpdateClipLayout(clip);
+                clip.DurationTicks = Math.Max(Models.PlaylistViewModel.PPQN / 4.0, sampleTicks);
+                changed.Add(clip.Id);
             }
+            return changed;
         }
 
         private void SyncPlaylistToEngine()
         {
-            ReconcileClipDurationsFromSamples();
-
             var clips = new List<AudioClipModel>();
             foreach (var item in _playlistViewModel.AudioClips)
             {
-                if (string.IsNullOrEmpty(item.FilePath)) continue;
-                var samples = LoadClipSamples(item);
-                if (samples.Length == 0) continue;
+                if (!PlaylistIntegrity.IsClipFileAccessible(item))
+                    continue;
+
+                var samples = GetClipSamplesForDuration(item);
+                if (!PlaylistIntegrity.HasPlayableAudio(item, samples))
+                    continue;
 
                 clips.Add(new AudioClipModel
                 {
@@ -2655,9 +2709,21 @@ namespace AudioStudio
         {
             selectedTrackIndex = clip.TrackIndex;
             focusedClipIndex = clip.TrackIndex;
-            SetStatusText($"Выбран клип: {clip.Name}");
+            int count = PlaylistViewControl?.SelectedClipCount ?? 1;
+            if (count > 1)
+            {
+                var reason = GetMergeDisabledReason();
+                SetStatusText(reason == null
+                    ? $"Выбрано клипов: {count} — ПКМ → Склеить"
+                    : $"Выбрано клипов: {count}");
+            }
+            else
+            {
+                SetStatusText($"Выбран клип: {clip.Name}");
+            }
             UpdateInstrumentsWindow();
             EnableControls(true);
+            _contextMenu?.UpdateMenuState();
         }
 
         private void OnPlaylistEmptyAreaInteracted(int trackIndex, double tick, bool isRightButton)
@@ -2741,42 +2807,118 @@ namespace AudioStudio
             return length > 0;
         }
 
-        public void RefreshPlaylistAfterEdit()
+        public void CommitPlaylistState(bool rebuildVisuals = false, IReadOnlySet<Guid>? forceFullRedrawIds = null)
         {
+            var durationChanged = ReconcileClipDurationsFromSamples();
+            if (forceFullRedrawIds != null)
+            {
+                foreach (var id in forceFullRedrawIds)
+                    durationChanged.Add(id);
+            }
+            PlaylistViewControl?.RefreshContentLayout(durationChanged);
             SyncTimeRuler();
             RebuildMixer();
-            PlaylistViewControl.InvalidateAll();
-            EnableControls(true);
+            TotalTimeText.Text = FormatTime(GetTotalDuration());
+            EnableControls(HasPlayableContent());
             UpdateCommandButtons();
+            if (rebuildVisuals)
+                PlaylistViewControl.InvalidateAll();
+        }
+
+        private void SyncPlaylistClipLayouts(IReadOnlySet<Guid>? forceFullRedrawIds = null)
+        {
+            forceFullRedrawIds ??= new HashSet<Guid>();
+            foreach (var clip in _playlistViewModel.AudioClips)
+            {
+                bool fullRedraw = forceFullRedrawIds.Contains(clip.Id);
+                PlaylistViewControl.UpdateClipLayout(clip, layoutOnly: !fullRedraw);
+            }
+        }
+
+        public void RefreshPlaylistAfterEdit(bool rebuildVisuals = false) =>
+            CommitPlaylistState(rebuildVisuals);
+
+        private List<(Models.TrackItemViewModel Clip, float[] Samples)> RemoveClipsContainingDropPoint(
+            int trackIndex,
+            double dropTick,
+            bool refresh = true)
+        {
+            var removed = new List<(Models.TrackItemViewModel, float[])>();
+            foreach (var existing in PlaylistIntegrity
+                         .GetClipsContainingPoint(_playlistViewModel, trackIndex, dropTick)
+                         .ToList())
+            {
+                var samples = LoadClipSamples(existing);
+                removed.Add((CloneClipMeta(existing), (float[])samples.Clone()));
+                RemovePlaylistClipInternal(existing.Id, refresh: false);
+            }
+
+            if (refresh && removed.Count > 0)
+                CommitPlaylistState();
+            return removed;
         }
 
         public void ApplyPlaylistClipLayout(Guid clipId, double? startTick, int? trackIndex, double? durationTicks)
         {
             var clip = _playlistViewModel.AudioClips.FirstOrDefault(c => c.Id == clipId);
             if (clip == null) return;
-            if (startTick.HasValue) clip.StartTick = startTick.Value;
-            if (trackIndex.HasValue) clip.TrackIndex = trackIndex.Value;
-            if (durationTicks.HasValue) clip.DurationTicks = durationTicks.Value;
-            PlaylistViewControl.UpdateClipLayout(clip, layoutOnly: !durationTicks.HasValue);
-            RefreshPlaylistAfterEdit();
+
+            if (startTick.HasValue || trackIndex.HasValue)
+            {
+                _playlistViewModel.ResolveClipPlacement(
+                    clip,
+                    startTick ?? clip.StartTick,
+                    trackIndex ?? clip.TrackIndex);
+            }
+
+            if (durationTicks.HasValue)
+            {
+                _playlistViewModel.ApplyClipResize(clip, durationTicks.Value);
+            }
+
+            HashSet<Guid>? redraw = durationTicks.HasValue ? new HashSet<Guid> { clipId } : null;
+            CommitPlaylistState(forceFullRedrawIds: redraw);
         }
 
-        public void InsertPlaylistClip(Models.TrackItemViewModel clip, float[] samples)
+        public void InsertPlaylistClip(
+            Models.TrackItemViewModel clip,
+            float[] samples,
+            List<(Models.TrackItemViewModel Clip, float[] Samples)>? replaced = null,
+            bool refresh = true)
         {
+            PlaylistIntegrity.NormalizeClipBounds(clip, _playlistViewModel);
             _clipSamplesCache[clip.Id] = (float[])samples.Clone();
+            PlaylistIntegrity.EnsureDurationFromSamples(clip, samples, _playlistViewModel);
+
             if (_playlistViewModel.AudioClips.All(c => c.Id != clip.Id))
-                _playlistViewModel.AudioClips.Add(clip);
-            RefreshPlaylistClipPeaks(clip);
-            RefreshPlaylistAfterEdit();
+            {
+                var peaks = ComputePeaksForClip(samples, 5000);
+                PlaylistViewControl.InsertClip(clip, peaks);
+            }
+            else
+            {
+                RefreshPlaylistClipPeaks(clip);
+                PlaylistViewControl.UpdateClipLayout(clip);
+            }
+
+            if (refresh)
+                CommitPlaylistState();
         }
 
-        public void RemovePlaylistClipInternal(Guid clipId)
+        public void SelectPlaylistClip(Guid clipId) =>
+            PlaylistViewControl?.SelectClip(clipId, raiseEvent: true);
+
+        public void SelectPlaylistClips(IEnumerable<Guid> clipIds) =>
+            PlaylistViewControl?.SelectClips(clipIds, raiseEvent: true);
+
+        public void RemovePlaylistClipInternal(Guid clipId, bool refresh = true)
         {
             _clipSamplesCache.Remove(clipId);
             PlaylistViewControl.RemoveClip(clipId);
             if (_playlistRangeClipId == clipId)
                 ClearSelection();
-            RefreshPlaylistAfterEdit();
+            if (refresh)
+                CommitPlaylistState();
         }
 
         public void SplicePlaylistSamplesInternal(Guid clipId, int startSample, float[] removed, bool saveToClipboard)
@@ -2797,7 +2939,7 @@ namespace AudioStudio
             _clipSamplesCache[clipId] = result;
             UpdateClipDurationFromSamples(item, result);
             RefreshPlaylistClipPeaks(item);
-            RefreshPlaylistAfterEdit();
+            CommitPlaylistState();
         }
 
         public void InsertPlaylistSamplesInternal(Guid clipId, int startSample, float[] data)
@@ -2814,7 +2956,7 @@ namespace AudioStudio
             _clipSamplesCache[clipId] = result;
             UpdateClipDurationFromSamples(item, result);
             RefreshPlaylistClipPeaks(item);
-            RefreshPlaylistAfterEdit();
+            CommitPlaylistState();
         }
 
         public void SetPlaylistClipboardWholeClip(Models.TrackItemViewModel clip, float[] samples, bool wasCut)
@@ -2856,22 +2998,30 @@ namespace AudioStudio
         private void OnPlaylistClipMoved(Models.TrackItemViewModel clip,
             double oldTick, int oldTrack, double newTick, int newTrack)
         {
+            CommitPlaylistState();
             if (Math.Abs(oldTick - newTick) < 0.01 && oldTrack == newTrack)
-            {
-                RefreshPlaylistAfterEdit();
                 return;
-            }
             _commandManager.Record(new Commands.MovePlaylistClipCommand(
                 this, clip.Id, oldTick, oldTrack, newTick, newTrack));
         }
 
+        private void OnPlaylistClipsMoved(
+            IReadOnlyList<(Models.TrackItemViewModel Clip, double OldTick, int OldTrack, double NewTick, int NewTrack)> moves)
+        {
+            CommitPlaylistState();
+            var actual = moves
+                .Where(m => Math.Abs(m.OldTick - m.NewTick) >= 0.01 || m.OldTrack != m.NewTrack)
+                .Select(m => (m.Clip.Id, m.OldTick, m.OldTrack, m.NewTick, m.NewTrack))
+                .ToList();
+            if (actual.Count == 0) return;
+            _commandManager.Record(new Commands.MovePlaylistClipsCommand(this, actual));
+        }
+
         private void OnPlaylistClipResized(Models.TrackItemViewModel clip, double oldDur, double newDur)
         {
+            CommitPlaylistState();
             if (Math.Abs(oldDur - newDur) < 0.01)
-            {
-                RefreshPlaylistAfterEdit();
                 return;
-            }
             _commandManager.Record(new Commands.ResizePlaylistClipCommand(
                 this, clip.Id, oldDur, newDur));
         }
@@ -2958,12 +3108,125 @@ namespace AudioStudio
 
         private void DeleteSelectedPlaylistClip()
         {
-            var clip = GetSelectedPlaylistClip();
-            if (clip == null) return;
+            var clips = PlaylistViewControl?.GetSelectedClips().ToList();
+            if (clips == null || clips.Count == 0) return;
 
-            var samples = LoadClipSamples(clip);
-            _commandManager.Execute(new Commands.RemovePlaylistClipCommand(this, clip, samples));
-            SetStatusText($"Удалён клип: {clip.Name}");
+            var snapshots = clips
+                .Select(c => (CloneClipMeta(c), (float[])LoadClipSamples(c).Clone()))
+                .ToList();
+
+            _commandManager.Execute(new Commands.RemovePlaylistClipsCommand(this, snapshots));
+
+            SetStatusText(clips.Count == 1
+                ? $"Удалён клип: {clips[0].Name}"
+                : $"Удалено клипов: {clips.Count}");
+        }
+
+        private float[] GetClipSamplesForDuration(Models.TrackItemViewModel clip)
+        {
+            if (!TryGetCachedClipSamples(clip, out var samples))
+                return Array.Empty<float>();
+
+            int frameRate = clip.SampleRate * Math.Max(1, clip.Channels);
+            if (frameRate <= 0) return Array.Empty<float>();
+
+            int maxFrames = (int)Math.Round(_playlistViewModel.TickToSeconds(clip.DurationTicks) * frameRate);
+            maxFrames = Math.Clamp(maxFrames, 0, samples.Length);
+            if (maxFrames == samples.Length) return samples;
+
+            var trimmed = new float[maxFrames];
+            Array.Copy(samples, trimmed, maxFrames);
+            return trimmed;
+        }
+
+        private (Models.TrackItemViewModel merged, float[] samples)? BuildMergedClipFromSelection()
+        {
+            if (!CanMergeSelectedPlaylistClips()) return null;
+
+            var clips = PlaylistViewControl!.GetSelectedClips().ToList();
+            double startTick = clips[0].StartTick;
+            double endTick = clips.Max(c => c.EndTick);
+            double totalDurationTicks = endTick - startTick;
+
+            int sr = clips[0].SampleRate;
+            int ch = Math.Max(1, clips[0].Channels);
+            int frameRate = sr * ch;
+
+            int totalFrames = (int)Math.Round(_playlistViewModel.TickToSeconds(totalDurationTicks) * frameRate);
+            totalFrames = Math.Max(totalFrames, 1);
+            var mergedSamples = new float[totalFrames];
+
+            foreach (var clip in clips)
+            {
+                var clipSamples = GetClipSamplesForDuration(clip);
+                if (clipSamples.Length == 0) continue;
+
+                double offsetSec = _playlistViewModel.TickToSeconds(clip.StartTick - startTick);
+                int offsetFrames = (int)Math.Round(offsetSec * frameRate);
+                offsetFrames = Math.Clamp(offsetFrames, 0, Math.Max(0, totalFrames - 1));
+
+                int copyLen = Math.Min(clipSamples.Length, totalFrames - offsetFrames);
+                if (copyLen > 0)
+                    Array.Copy(clipSamples, 0, mergedSamples, offsetFrames, copyLen);
+            }
+
+            string name = clips.Count == 2
+                ? $"{clips[0].Name} + {clips[1].Name}"
+                : $"Склеено ({clips.Count})";
+
+            var mergedClip = new Models.TrackItemViewModel
+            {
+                Id = Guid.NewGuid(),
+                Name = name,
+                FilePath = clips[0].FilePath,
+                SampleRate = sr,
+                Channels = ch,
+                SourceDurationSeconds = totalFrames / (double)frameRate,
+                StartTick = startTick,
+                DurationTicks = totalDurationTicks,
+                TrackIndex = clips[0].TrackIndex,
+                Color = clips[0].Color
+            };
+
+            return (mergedClip, mergedSamples);
+        }
+
+        public void MergeSelectedClips_Click(object sender, RoutedEventArgs e)
+        {
+            var reason = GetMergeDisabledReason();
+            if (reason != null)
+            {
+                MessageBox.Show(reason, "Склеить клипы", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var built = BuildMergedClipFromSelection();
+            if (built == null)
+            {
+                MessageBox.Show("Не удалось подготовить склеенный клип.", "Склеить клипы",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var (mergedClip, mergedSamples) = built.Value;
+
+            var removedClips = new List<Models.TrackItemViewModel>();
+            var removedSamples = new List<float[]>();
+
+            foreach (var clip in PlaylistViewControl!.GetSelectedClips())
+            {
+                removedClips.Add(CloneClipMeta(clip));
+                removedSamples.Add((float[])GetClipSamplesForDuration(clip).Clone());
+            }
+
+            _commandManager.Execute(new Commands.MergePlaylistClipsCommand(
+                this, removedClips, removedSamples, mergedClip, mergedSamples));
+
+            SyncPlaylistToEngine();
+            PlaylistViewControl.InvalidateAll();
+            PlaylistViewControl.SelectClip(mergedClip.Id, raiseEvent: true);
+            SetStatusText($"Склеено клипов: {removedClips.Count} (Ctrl+Z — отменить)");
+            EnableControls(true);
         }
 
         private void EnqueuePlaylistFiles(IReadOnlyList<string> paths, int trackIndex)
@@ -2989,7 +3252,8 @@ namespace AudioStudio
             string path,
             double tickPos = 0,
             int? trackIndex = null,
-            Action? onCompleted = null)
+            Action? onCompleted = null,
+            bool replaceClipsAtDropPoint = false)
         {
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
             {
@@ -3000,7 +3264,7 @@ namespace AudioStudio
 
             int track = trackIndex ?? Math.Max(0, Math.Min(_playlistViewModel.NumTracks - 1, selectedTrackIndex));
             StartActivity("Загрузка");
-            Task.Run(() => BuildPlaylistClipPayload(path, tickPos, track))
+            Task.Run(() => BuildPlaylistClipPayload(path, tickPos, track, autoPlace: false))
                 .ContinueWith(t =>
                 {
                     Dispatcher.Invoke(() =>
@@ -3014,18 +3278,27 @@ namespace AudioStudio
                             }
 
                             var payload = t.Result;
+                            var replaced = replaceClipsAtDropPoint
+                                           && PlaylistIntegrity
+                                               .GetClipsContainingPoint(_playlistViewModel, track, tickPos)
+                                               .Any()
+                                ? RemoveClipsContainingDropPoint(track, tickPos, refresh: false)
+                                : new List<(Models.TrackItemViewModel, float[])>();
+
+                            double preferredTick = _playlistViewModel.GetPreferredInsertTick(
+                                track, tickPos, payload.Clip.DurationTicks, replaceClipsAtDropPoint);
+                            _playlistViewModel.ResolveClipPlacement(payload.Clip, preferredTick, track);
+                            PlaylistIntegrity.EnsureDurationFromSamples(
+                                payload.Clip, payload.Samples, _playlistViewModel);
                             _clipSamplesCache[payload.Clip.Id] = payload.Samples;
                             PlaylistViewControl.InsertClip(payload.Clip, payload.Peaks);
                             PlaylistViewControl.SelectClip(payload.Clip.Id);
+                            CommitPlaylistState(forceFullRedrawIds: new HashSet<Guid> { payload.Clip.Id });
+                            PlaylistViewControl.RefreshViewportLayout();
                             _commandManager.Record(new Commands.AddPlaylistClipCommand(
-                                this, CloneClipMeta(payload.Clip), payload.Samples));
+                                this, CloneClipMeta(payload.Clip), payload.Samples, replaced));
                             SetStatusText($"Добавлен: {payload.Clip.Name}");
                             StopActivity($"Добавлен: {payload.Clip.Name}");
-                            SyncTimeRuler();
-                            RebuildMixer();
-                            EnableControls(true);
-                            UpdateCommandButtons();
-                            TotalTimeText.Text = FormatTime(GetTotalDuration());
                         }
                         finally
                         {
@@ -3073,6 +3346,7 @@ namespace AudioStudio
             bool hasAudio = HasPlayableContent();
             BtnPlay.IsEnabled = enable && hasAudio;
             BtnStop.IsEnabled = enable;
+            BtnRestart.IsEnabled = enable && hasAudio;
             BtnApply.IsEnabled = enable && (HasSelectedPlaylistClip() || tracks.Any(t => t.Samples.Length > 0));
 
             bool canEdit = enable && HasSelection();
@@ -3104,7 +3378,7 @@ namespace AudioStudio
 
             ClearPlaylistProject();
             _currentProjectPath = null;
-            Title = "BF^Studio — Новый проект";
+            Title = "Bnote — Новый проект";
             SetStatusText("Новый проект");
         }
 
@@ -3159,7 +3433,7 @@ namespace AudioStudio
             {
                 SaveProjectToFile(dialog.FileName);
                 _currentProjectPath = dialog.FileName;
-                Title = $"BF^Studio — {Path.GetFileNameWithoutExtension(dialog.FileName)}";
+                Title = $"Bnote — {Path.GetFileNameWithoutExtension(dialog.FileName)}";
                 SetStatusText($"Сохранено: {Path.GetFileName(dialog.FileName)}");
             }
             catch (Exception ex)
@@ -3172,7 +3446,7 @@ namespace AudioStudio
         private void HelpAbout_Click(object sender, RoutedEventArgs e)
         {
             MessageBox.Show(
-                "BF^Studio by PRYTEK Vision\n\nDAW с плейлистом, микшером и браузером аудио.",
+                "Bnote by PRYTEK Vision\n\nDAW с плейлистом, микшером и браузером аудио.",
                 "О программе",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
@@ -3198,14 +3472,12 @@ namespace AudioStudio
 
             var clipIds = _playlistViewModel.AudioClips.Select(c => c.Id).ToList();
             foreach (var id in clipIds)
-                RemovePlaylistClipInternal(id);
+                RemovePlaylistClipInternal(id, refresh: false);
 
             _playlistViewModel.AudioClips.Clear();
             _clipSamplesCache.Clear();
             PlaylistViewControl.InvalidateAll();
-            RebuildMixer();
-            TotalTimeText.Text = FormatTime(GetTotalDuration());
-            EnableControls(HasPlayableContent());
+            CommitPlaylistState(rebuildVisuals: true);
         }
 
         private void SaveProjectToFile(string projectFilePath)
@@ -3223,7 +3495,7 @@ namespace AudioStudio
             _playlistViewModel.Bpm = project.Bpm;
             _playlistViewModel.NumTracks = Math.Max(1, project.NumTracks);
             _currentProjectPath = projectFilePath;
-            Title = $"BF^Studio — {project.Name}";
+            Title = $"Bnote — {project.Name}";
 
             foreach (var pc in project.Clips)
             {
@@ -3247,10 +3519,7 @@ namespace AudioStudio
             }
 
             PlaylistViewControl.InvalidateAll();
-            SyncTimeRuler();
-            RebuildMixer();
-            TotalTimeText.Text = FormatTime(GetTotalDuration());
-            EnableControls(HasPlayableContent());
+            CommitPlaylistState(rebuildVisuals: true);
             SetStatusText($"Открыт проект: {project.Name}");
         }
 
@@ -3940,11 +4209,32 @@ namespace AudioStudio
             _audio.Play();
             isPlaying = true;
             SetPlayIcon(true);
+            CompositionTarget.Rendering -= OnRenderFrame;
             CompositionTarget.Rendering += OnRenderFrame;
             SetStatusText("Воспроизведение...");
         }
 
         private void Stop_Click(object sender, RoutedEventArgs e) => StopTransport(resetToStart: true);
+
+        public void Restart_Click(object sender, RoutedEventArgs e)
+        {
+            if (!HasPlayableContent())
+                return;
+
+            if (isPlaying)
+            {
+                _audio.Stop();
+                isPlaying = false;
+                SetPlayIcon(false);
+                CompositionTarget.Rendering -= OnRenderFrame;
+            }
+
+            currentTime = 0;
+            _audio.Seek(0);
+            PlaylistViewControl.SetPlayheadTime(0);
+            CurrentTimeText.Text = FormatTime(0);
+            StartPlayback();
+        }
 
         private void StopTransport(bool resetToStart)
         {
@@ -3987,33 +4277,38 @@ namespace AudioStudio
             SetStatusText(_isLoopEnabled ? "Повтор включён" : "Повтор выключен");
         }
 
+        private const double RingDiameter = 22;
+        private const double RingStrokeThickness = 2.5;
+
+        private static double RingCircumference =>
+            Math.PI * (RingDiameter - RingStrokeThickness);
+
         private void SetRingProgress(double progress)
         {
             _ringProgress = Math.Clamp(progress, 0, 1);
-            if (RingProgress == null) return;
+            if (RingTrack == null || RingProgress == null) return;
+
+            RingTrack.StrokeDashArray = null;
 
             if (_ringProgress <= 0.001)
             {
                 RingProgress.Visibility = Visibility.Collapsed;
-                RingProgress.Data = null;
+                RingProgress.StrokeDashArray = null;
                 return;
             }
 
             RingProgress.Visibility = Visibility.Visible;
-            const double r = 10;
-            const double cx = 14;
-            const double cy = 14;
-            double angle = Math.Min(359.999, _ringProgress * 360);
-            double rad = angle * Math.PI / 180;
-            double endX = cx + r * Math.Sin(rad);
-            double endY = cy - r * Math.Cos(rad);
-            var fig = new PathFigure { StartPoint = new Point(cx, cy - r), IsClosed = false };
-            fig.Segments.Add(new ArcSegment(
-                new Point(endX, endY),
-                new Size(r, r), 0, angle > 180, SweepDirection.Clockwise, true));
-            var geo = new PathGeometry();
-            geo.Figures.Add(fig);
-            RingProgress.Data = geo;
+
+            if (_ringProgress >= 0.999)
+            {
+                RingProgress.StrokeDashArray = null;
+                return;
+            }
+
+            double c = RingCircumference;
+            double visible = _ringProgress * c;
+            RingProgress.StrokeDashArray = new DoubleCollection { visible, c - visible };
+            RingProgress.StrokeDashOffset = 0;
         }
 
         private void OnRingRendering(object? sender, EventArgs e)
@@ -4146,10 +4441,39 @@ namespace AudioStudio
             }
         }
 
-        private void SpinnerGrid_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+        private void SetupActivityPopupHover()
         {
-            if (ActivityPopup == null) return;
-            if (ActivityPopup.IsOpen) return;
+            if (ActivityPopupBorder == null) return;
+            ActivityPopupBorder.MouseEnter += (_, _) => CancelActivityPopupClose();
+            ActivityPopupBorder.MouseLeave += (_, _) => ScheduleActivityPopupClose();
+        }
+
+        private void CancelActivityPopupClose()
+        {
+            _activityPopupCloseTimer?.Stop();
+        }
+
+        private void ScheduleActivityPopupClose()
+        {
+            CancelActivityPopupClose();
+            if (_activityPopupCloseTimer == null)
+            {
+                _activityPopupCloseTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+                _activityPopupCloseTimer.Tick += (_, _) =>
+                {
+                    _activityPopupCloseTimer!.Stop();
+                    if (ActivityRing?.IsMouseOver == true) return;
+                    if (ActivityPopupBorder?.IsMouseOver == true) return;
+                    if (ActivityPopup != null)
+                        ActivityPopup.IsOpen = false;
+                    _popupUpdateTimer?.Stop();
+                };
+            }
+            _activityPopupCloseTimer.Start();
+        }
+
+        private void UpdateActivityPopupContent()
+        {
             if (_isOperationActive)
             {
                 PopupTitle.Text = GetActivityDotsText();
@@ -4158,8 +4482,17 @@ namespace AudioStudio
             else
             {
                 PopupTitle.Text = "Готово";
-                PopupDescription.Text = string.IsNullOrEmpty(_lastStatusDetail) ? _currentOperationDescription : _lastStatusDetail;
+                PopupDescription.Text = string.IsNullOrEmpty(_lastStatusDetail)
+                    ? _currentOperationDescription
+                    : _lastStatusDetail;
             }
+        }
+
+        private void SpinnerGrid_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            if (ActivityPopup == null) return;
+            CancelActivityPopupClose();
+            UpdateActivityPopupContent();
             ActivityPopup.IsOpen = true;
             if (_isOperationActive && _popupUpdateTimer != null && !_popupUpdateTimer.IsEnabled)
                 _popupUpdateTimer.Start();
@@ -4167,10 +4500,7 @@ namespace AudioStudio
 
         private void SpinnerGrid_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
         {
-            if (ActivityPopup != null)
-                ActivityPopup.IsOpen = false;
-            if (_popupUpdateTimer != null)
-                _popupUpdateTimer.Stop();
+            ScheduleActivityPopupClose();
         }
 
         public void Cut_Click(object sender, RoutedEventArgs e)
@@ -4440,7 +4770,7 @@ namespace AudioStudio
                 foreach (var c in onTrack)
                     _clipSamplesCache.Remove(c.Id);
                 PlaylistViewControl.RemoveClipsOnTrack(trackIdx);
-                OnPlaylistChanged();
+                CommitPlaylistState();
                 SetStatusText($"Дорожка {trackIdx + 1} очищена");
                 return;
             }

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -23,6 +24,7 @@ namespace AudioStudio.Views
         public event Action<TrackItemViewModel>? ClipContextMenuRequested;
         public event Action<TrackItemViewModel, double, double>? ClipRangeSelected;
         public event Action<TrackItemViewModel, double, int, double, int>? ClipMoved;
+        public event Action<IReadOnlyList<(TrackItemViewModel Clip, double OldTick, int OldTrack, double NewTick, int NewTrack)>>? ClipsMoved;
         public event Action<TrackItemViewModel, double, double>? ClipResized;
         /// <summary>trackIndex, tick position, isRightButton</summary>
         public event Action<int, double, bool>? EmptyAreaInteracted;
@@ -40,7 +42,11 @@ namespace AudioStudio.Views
         private double _lastGridTotalH = double.NaN;
         private double _lastGridZoom = double.NaN;
         private readonly List<Line> _gridLines = new();
-        private readonly List<Rectangle> _trackBgRects = new();
+        private readonly Dictionary<int, Rectangle> _trackBgByIndex = new();
+        private readonly Dictionary<(Guid Id, int WidthKey), (Geometry Top, Geometry Bottom)> _waveformGeometryCache = new();
+        private DispatcherTimer? _scrollSyncTimer;
+        private const double ViewportMargin = 120;
+        private const int TrackBgVirtualizeThreshold = 24;
         private Line? _playheadLine;
         private Rectangle? _playheadHitArea;
         private readonly TranslateTransform _playheadTransform = new();
@@ -50,6 +56,7 @@ namespace AudioStudio.Views
         private double _playheadDragStartX;
         private double _playheadDragStartSeconds;
         private Guid? _selectedClipId;
+        private readonly HashSet<Guid> _selectedClipIds = new();
 
         private enum DragMode { None, Move, ResizeRight, SelectRange }
         private double _selectStartLocalX;
@@ -65,7 +72,14 @@ namespace AudioStudio.Views
         private int _dragStartTrack;
         private double _dragStartDuration;
         private bool _isDragging;
+        private readonly HashSet<Guid> _moveClipIds = new();
+        private readonly Dictionary<Guid, (double Tick, int Track)> _dragStartPositions = new();
+        private bool _initialTrackLayoutDone;
         private DispatcherTimer? _zoomWaveformTimer;
+        private double _stableViewportWidth = 800;
+        private double _fixedViewportMinWidth = 800;
+        private bool _deferredLayoutPending;
+        private const double MinTimelineSeconds = 120;
 
         private static readonly SolidColorBrush GridBarBrush = Freeze(Color.FromArgb(50, 120, 129, 255));
         private static readonly SolidColorBrush GridMajorBrush = Freeze(Color.FromArgb(32, 160, 160, 160));
@@ -116,17 +130,19 @@ namespace AudioStudio.Views
             _playheadHitArea.MouseLeave += PlayheadHit_MouseLeave;
 
             PlayheadLayer.Children.Add(_playheadLine);
-            ClipLayer.Children.Add(_playheadHitArea);
-            Panel.SetZIndex(_playheadHitArea, 50);
+            PlayheadLayer.Children.Add(_playheadHitArea);
 
             Loaded += (_, _) =>
             {
                 UpdateContentSize();
                 SetPlayheadTime(0);
+                TryEnsureInitialTrackCount();
             };
 
             ClipLayer.MouseMove += ClipLayer_PlayheadMouseMove;
             ClipLayer.MouseLeftButtonUp += ClipLayer_PlayheadMouseUp;
+            ClipLayer.PreviewMouseLeftButtonDown += ClipLayer_PreviewMouseLeftButtonDown;
+            ClipLayer.PreviewMouseRightButtonDown += ClipLayer_PreviewMouseRightButtonDown;
             MainScroller.PreviewMouseLeftButtonDown += MainScroller_PreviewMouseLeftButtonDown;
             MainScroller.PreviewMouseLeftButtonUp += MainScroller_PreviewMouseLeftButtonUp;
             MainScroller.MouseMove += ClipLayer_PlayheadMouseMove;
@@ -156,13 +172,37 @@ namespace AudioStudio.Views
         /// <summary>Пересчёт ширины контента и сетки при изменении области просмотра (сплиттер, ресайз окна).</summary>
         public void RefreshViewportLayout()
         {
+            TryEnsureInitialTrackCount();
+            _fixedViewportMinWidth = Math.Max(_fixedViewportMinWidth, GetViewportWidth());
+            RefreshContentLayout();
+            ScheduleDeferredLayoutRefresh();
+        }
+
+        private void ScheduleDeferredLayoutRefresh()
+        {
+            if (_deferredLayoutPending) return;
+            _deferredLayoutPending = true;
+            Dispatcher.BeginInvoke(() =>
+            {
+                _deferredLayoutPending = false;
+                if (!IsLoaded) return;
+                RefreshContentLayout();
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        /// <summary>Синхронизация ширины таймлайна, фонов дорожек и визуалов клипов.</summary>
+        public void RefreshContentLayout(IReadOnlySet<Guid>? fullRedrawIds = null)
+        {
+            fullRedrawIds ??= new HashSet<Guid>();
             UpdateContentSize();
-            if (_trackBgRects.Count == _model.NumTracks)
-                UpdateTrackBackgroundWidths();
-            else if (_model.NumTracks > 0)
-                DrawTrackBackgrounds();
-            InvalidateGridCache();
+            DrawTrackBackgrounds();
             DrawGridLines(force: true);
+            foreach (var clip in _model.AudioClips)
+            {
+                bool full = fullRedrawIds.Contains(clip.Id);
+                UpdateClipVisual(clip, layoutOnly: !full);
+            }
+            SyncVisibleClips();
             UpdatePlayheadPosition();
         }
 
@@ -170,6 +210,9 @@ namespace AudioStudio.Views
         {
             _peaksCache[clip.Id] = peaks;
             _model.AudioClips.Add(clip);
+            // Layout после Add: иначе при drop в начало ширина «залипает» по клипу.
+            RefreshContentLayout(new HashSet<Guid> { clip.Id });
+            ScheduleDeferredLayoutRefresh();
         }
 
         public void UpdateClipLayout(TrackItemViewModel clip, bool layoutOnly = false)
@@ -196,7 +239,7 @@ namespace AudioStudio.Views
             var toRemove = _model.AudioClips.Where(c => c.TrackIndex >= _model.NumTracks - 1).ToList();
             foreach (var c in toRemove)
             {
-                if (_selectedClipId == c.Id) _selectedClipId = null;
+                if (_selectedClipId == c.Id) { _selectedClipId = null; _selectedClipIds.Remove(c.Id); }
                 _peaksCache.Remove(c.Id);
                 _model.AudioClips.Remove(c);
             }
@@ -207,13 +250,75 @@ namespace AudioStudio.Views
 
         public Guid? SelectedClipId => _selectedClipId;
 
-        public TrackItemViewModel? GetSelectedClip() =>
-            _selectedClipId.HasValue
-                ? _model.AudioClips.FirstOrDefault(c => c.Id == _selectedClipId.Value)
-                : null;
-
-        public void SelectClip(Guid? clipId, bool raiseEvent = true)
+        public IReadOnlyList<TrackItemViewModel> GetSelectedClips()
         {
+            PruneClipSelection();
+            return _model.AudioClips.Where(c => _selectedClipIds.Contains(c.Id))
+                .OrderBy(c => c.StartTick)
+                .ToList();
+        }
+
+        public int SelectedClipCount => GetSelectedClips().Count;
+
+        public TrackItemViewModel? GetSelectedClip()
+        {
+            if (_selectedClipId.HasValue)
+            {
+                var primary = _model.AudioClips.FirstOrDefault(c => c.Id == _selectedClipId.Value);
+                if (primary != null) return primary;
+            }
+
+            return _model.AudioClips.FirstOrDefault(c => _selectedClipIds.Contains(c.Id));
+        }
+
+        private void PruneClipSelection()
+        {
+            _selectedClipIds.RemoveWhere(id => _model.AudioClips.All(c => c.Id != id));
+            if (_selectedClipId.HasValue && _model.AudioClips.All(c => c.Id != _selectedClipId.Value))
+                _selectedClipId = _selectedClipIds.FirstOrDefault();
+            UpdateSelectionVisuals();
+        }
+
+        public void SelectClip(Guid? clipId, bool raiseEvent = true, bool additive = false, bool preserveMultiSelection = false)
+        {
+            if (!clipId.HasValue)
+            {
+                _selectedClipIds.Clear();
+                _selectedClipId = null;
+                UpdateSelectionVisuals();
+                return;
+            }
+
+            if (preserveMultiSelection && _selectedClipIds.Contains(clipId.Value) && _selectedClipIds.Count > 1)
+            {
+                _selectedClipId = clipId.Value;
+                UpdateSelectionVisuals();
+                if (raiseEvent)
+                {
+                    var clip = _model.AudioClips.FirstOrDefault(c => c.Id == clipId.Value);
+                    if (clip != null) ClipSelected?.Invoke(clip);
+                }
+                return;
+            }
+
+            if (!additive || !clipId.HasValue)
+            {
+                _selectedClipIds.Clear();
+                if (clipId.HasValue)
+                    _selectedClipIds.Add(clipId.Value);
+            }
+            else if (_selectedClipIds.Contains(clipId.Value))
+            {
+                _selectedClipIds.Remove(clipId.Value);
+                _selectedClipId = _selectedClipIds.Count > 0 ? _selectedClipIds.First() : null;
+                UpdateSelectionVisuals();
+                return;
+            }
+            else
+            {
+                _selectedClipIds.Add(clipId.Value);
+            }
+
             _selectedClipId = clipId;
             UpdateSelectionVisuals();
             if (raiseEvent && clipId.HasValue)
@@ -223,17 +328,78 @@ namespace AudioStudio.Views
             }
         }
 
+        public void SelectClips(IEnumerable<Guid> clipIds, bool raiseEvent = false)
+        {
+            _selectedClipIds.Clear();
+            foreach (var id in clipIds)
+                _selectedClipIds.Add(id);
+            _selectedClipId = _selectedClipIds.FirstOrDefault();
+            UpdateSelectionVisuals();
+            if (raiseEvent && _selectedClipId.HasValue)
+            {
+                var clip = _model.AudioClips.FirstOrDefault(c => c.Id == _selectedClipId.Value);
+                if (clip != null) ClipSelected?.Invoke(clip);
+            }
+        }
+
+        public void ClearClipSelection()
+        {
+            _selectedClipIds.Clear();
+            _selectedClipId = null;
+            UpdateSelectionVisuals();
+        }
+
         public void RemoveClip(Guid clipId)
         {
             var clip = _model.AudioClips.FirstOrDefault(c => c.Id == clipId);
-            if (clip == null) return;
+            if (clip == null)
+            {
+                DetachAllClipVisuals(clipId);
+                PurgeOrphanClipVisuals();
+                SyncVisibleClips();
+                return;
+            }
+
             if (_activeClip?.Id == clipId)
                 CancelActiveInteraction(revertChanges: true);
-            if (_selectedClipId == clipId) _selectedClipId = null;
+
+            _selectedClipIds.Remove(clipId);
+            if (_selectedClipId == clipId)
+                _selectedClipId = _selectedClipIds.FirstOrDefault();
             if (_rangeSelClipId == clipId)
                 ClearTimeSelection();
             _peaksCache.Remove(clipId);
+            ClearWaveformCache(clipId);
+
+            DetachAllClipVisuals(clipId);
             _model.AudioClips.Remove(clip);
+
+            if (_activeClip?.Id == clipId)
+            {
+                _activeClip = null;
+                _dragMode = DragMode.None;
+                _isDragging = false;
+                if (ClipLayer.IsMouseCaptured)
+                    ClipLayer.ReleaseMouseCapture();
+            }
+
+            PurgeOrphanClipVisuals();
+            SyncVisibleClips();
+            DrawTimeSelection();
+            UpdateContentSize();
+            DrawTrackBackgrounds();
+            DrawGridLines();
+            ScheduleDeferredLayoutRefresh();
+        }
+
+        private void DetachAllClipVisuals(Guid clipId)
+        {
+            _clipVisuals.Remove(clipId);
+            foreach (var child in ClipLayer.Children.OfType<Border>().ToList())
+            {
+                if (child.Tag is Guid id && id == clipId)
+                    ClipLayer.Children.Remove(child);
+            }
         }
 
         public void RemoveClipsOnTrack(int trackIndex)
@@ -259,15 +425,178 @@ namespace AudioStudio.Views
 
         private void OnClipsChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
+            if (e.Action == NotifyCollectionChangedAction.Add && e.NewItems != null)
+            {
+                foreach (TrackItemViewModel clip in e.NewItems)
+                    InsertClipVisual(clip);
+                return;
+            }
+
+            if (e.Action == NotifyCollectionChangedAction.Remove && e.OldItems != null)
+            {
+                foreach (TrackItemViewModel clip in e.OldItems)
+                    DetachAllClipVisuals(clip.Id);
+                PurgeOrphanClipVisuals();
+                SyncVisibleClips();
+                DrawTimeSelection();
+                UpdateContentSize();
+                DrawTrackBackgrounds();
+                DrawGridLines();
+                ScheduleDeferredLayoutRefresh();
+                return;
+            }
+
             _needsRebuild = true;
             RebuildIfNeeded();
         }
 
+        private void RemoveClipVisual(Guid clipId) => DetachAllClipVisuals(clipId);
+
+        private void PurgeOrphanClipVisuals()
+        {
+            foreach (var child in ClipLayer.Children.OfType<Border>().ToList())
+            {
+                if (child.Tag is not Guid id || _model.AudioClips.Any(c => c.Id == id))
+                    continue;
+                ClipLayer.Children.Remove(child);
+                _clipVisuals.Remove(id);
+            }
+        }
+
+        public void InsertClipVisual(TrackItemViewModel clip)
+        {
+            if (_clipVisuals.ContainsKey(clip.Id))
+                return;
+
+            if (IsClipInViewport(clip))
+            {
+                var border = CreateClipVisual(clip);
+                _clipVisuals[clip.Id] = border;
+                ClipLayer.Children.Add(border);
+                EnsurePlayheadHitAreaOnTop();
+            }
+        }
+
         private void OnScrollChanged(object sender, ScrollChangedEventArgs e)
         {
-            InvalidateGridCache();
-            DrawGridLines(force: true);
             ScrollUpdated?.Invoke(this, EventArgs.Empty);
+            if (e.VerticalChange != 0 && _model.NumTracks > TrackBgVirtualizeThreshold)
+                SyncVisibleTrackBackgrounds();
+            ScheduleScrollSync();
+        }
+
+        private void ScheduleScrollSync()
+        {
+            if (_scrollSyncTimer == null)
+            {
+                _scrollSyncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+                _scrollSyncTimer.Tick += (_, _) =>
+                {
+                    _scrollSyncTimer!.Stop();
+                    DrawGridLines();
+                    SyncVisibleClips();
+                };
+            }
+            if (!_scrollSyncTimer.IsEnabled)
+                _scrollSyncTimer.Start();
+        }
+
+        private (double minX, double maxX, double minY, double maxY) GetVisibleViewportPx()
+        {
+            double scrollX = MainScroller.HorizontalOffset;
+            double scrollY = MainScroller.VerticalOffset;
+            double vpW = MainScroller.ViewportWidth;
+            double vpH = MainScroller.ViewportHeight;
+            if (vpW <= 0 || double.IsNaN(vpW)) vpW = ActualWidth;
+            if (vpH <= 0 || double.IsNaN(vpH)) vpH = ActualHeight;
+            return (scrollX - ViewportMargin, scrollX + vpW + ViewportMargin,
+                scrollY - ViewportMargin, scrollY + vpH + ViewportMargin);
+        }
+
+        private bool IsClipInViewport(TrackItemViewModel clip)
+        {
+            var (minX, maxX, minY, maxY) = GetVisibleViewportPx();
+            double left = clip.StartTick * _model.ZoomX;
+            double right = left + clip.DurationTicks * _model.ZoomX;
+            double top = clip.TrackIndex * _model.TrackHeight;
+            double bottom = top + _model.TrackHeight;
+            return right >= minX && left <= maxX && bottom >= minY && top <= maxY;
+        }
+
+        private bool ShouldKeepClipVisual(Guid clipId)
+        {
+            var clip = _model.AudioClips.FirstOrDefault(c => c.Id == clipId);
+            if (clip == null) return false;
+            if (_activeClip?.Id == clipId && _isDragging) return true;
+            if (_moveClipIds.Contains(clipId) && _isDragging) return true;
+            return IsClipInViewport(clip);
+        }
+
+        private void SyncVisibleClips()
+        {
+            var toRemove = _clipVisuals.Keys.Where(id => !ShouldKeepClipVisual(id)).ToList();
+            foreach (var id in toRemove)
+            {
+                if (_clipVisuals.TryGetValue(id, out var border))
+                {
+                    ClipLayer.Children.Remove(border);
+                    _clipVisuals.Remove(id);
+                }
+            }
+
+            foreach (var clip in _model.AudioClips)
+            {
+                if (_clipVisuals.ContainsKey(clip.Id)) continue;
+                if (!IsClipInViewport(clip)) continue;
+                var border = CreateClipVisual(clip);
+                _clipVisuals[clip.Id] = border;
+                ClipLayer.Children.Add(border);
+            }
+
+            EnsurePlayheadHitAreaOnTop();
+        }
+
+        private void EnsurePlayheadHitAreaOnTop()
+        {
+            if (_playheadHitArea == null || !PlayheadLayer.Children.Contains(_playheadHitArea)) return;
+            PlayheadLayer.Children.Remove(_playheadHitArea);
+            PlayheadLayer.Children.Add(_playheadHitArea);
+        }
+
+        private void TryEnsureInitialTrackCount()
+        {
+            if (_initialTrackLayoutDone) return;
+            if (_model.AudioClips.Count > 0)
+            {
+                _initialTrackLayoutDone = true;
+                return;
+            }
+
+            double vpH = MainScroller.ViewportHeight;
+            if (vpH <= 0 || double.IsNaN(vpH))
+                vpH = MainScroller.ActualHeight;
+            if (vpH <= 0 || double.IsNaN(vpH)) return;
+
+            const int defaultTracks = 8;
+            int target = Math.Max(defaultTracks, (int)Math.Ceiling(vpH / _model.TrackHeight));
+            if (_model.NumTracks != target)
+            {
+                _model.NumTracks = target;
+                _needsRebuild = true;
+                RebuildIfNeeded();
+            }
+
+            _initialTrackLayoutDone = true;
+        }
+
+        private static bool IsScrollBarPart(DependencyObject? source)
+        {
+            while (source != null)
+            {
+                if (source is ScrollBar) return true;
+                source = VisualTreeHelper.GetParent(source);
+            }
+            return false;
         }
 
         private void RebuildIfNeeded()
@@ -278,28 +607,22 @@ namespace AudioStudio.Views
 
             _needsRebuild = false;
             TrackBgLayer.Children.Clear();
+            _trackBgByIndex.Clear();
             ClipLayer.Children.Clear();
             _clipVisuals.Clear();
-            if (_playheadHitArea != null)
-            {
-                ClipLayer.Children.Add(_playheadHitArea);
-                Panel.SetZIndex(_playheadHitArea, 50);
-            }
+            if (_playheadHitArea != null && !PlayheadLayer.Children.Contains(_playheadHitArea))
+                PlayheadLayer.Children.Add(_playheadHitArea);
 
             UpdateContentSize();
             DrawTrackBackgrounds();
 
-            foreach (var clip in _model.AudioClips)
-            {
-                var border = CreateClipVisual(clip);
-                _clipVisuals[clip.Id] = border;
-                ClipLayer.Children.Add(border);
-            }
+            SyncVisibleClips();
 
             DrawGridLines();
             if (_playheadSeconds >= 0)
                 UpdatePlayheadPosition();
             RefreshTimeSelectionAfterRebuild();
+            ScheduleDeferredLayoutRefresh();
         }
 
         private void RefreshTimeSelectionAfterRebuild()
@@ -332,44 +655,61 @@ namespace AudioStudio.Views
                 vpW = MainScroller.ActualWidth;
             if (vpW <= 0 || double.IsNaN(vpW))
                 vpW = ActualWidth;
-            return vpW;
+            if (vpW <= 0 || double.IsNaN(vpW))
+                vpW = _stableViewportWidth;
+
+            if (vpW > 100 && !double.IsNaN(vpW) && !double.IsInfinity(vpW))
+            {
+                _stableViewportWidth = vpW;
+                _fixedViewportMinWidth = Math.Max(_fixedViewportMinWidth, vpW);
+            }
+
+            return Math.Max(vpW, _fixedViewportMinWidth);
+        }
+
+        private double GetEffectiveZoom()
+        {
+            double zoom = _model.ZoomX;
+            if (double.IsNaN(zoom) || double.IsInfinity(zoom) || zoom < 0.001)
+                zoom = 0.001;
+            return zoom;
         }
 
         private double GetContentWidthPx()
         {
-            double maxTicks = 0;
+            double zoom = GetEffectiveZoom();
+            double vpW = Math.Max(GetViewportWidth(), _fixedViewportMinWidth);
+            double timelineMinW = Math.Max(400, MinTimelineSeconds * _model.TicksPerSecond * zoom);
+
+            // Ширина таймлайна НИКОГДА не меньше окна и 120 сек — не зависит от позиции клипа.
+            double w = Math.Max(vpW, timelineMinW);
             foreach (var clip in _model.AudioClips)
+                w = Math.Max(w, clip.EndTick * zoom + 200);
+
+            return w;
+        }
+
+        private void ForceTrackBackgroundWidths(double w)
+        {
+            foreach (var rect in _trackBgByIndex.Values)
             {
-                if (clip.EndTick > maxTicks)
-                    maxTicks = clip.EndTick;
+                rect.Width = w;
+                Canvas.SetLeft(rect, 0);
             }
-
-            double contentW = Math.Max(maxTicks * _model.ZoomX + 200, GetViewportWidth());
-            if (double.IsNaN(contentW) || double.IsInfinity(contentW))
-                contentW = 200;
-            return contentW;
         }
 
-        /// <summary>Длительность видимой области таймлайна (для перемещения playhead без клипов).</summary>
-        public double GetTimelineDurationSeconds()
+        private double GetViewportHeight()
         {
-            double pps = PixelsPerSecond;
-            if (pps <= 1e-6) return 10;
-            return Math.Max(GetContentWidthPx() / pps, 10);
-        }
-
-        private void UpdateContentSize()
-        {
-            double contentW = GetContentWidthPx();
             double vpH = MainScroller.ViewportHeight;
             if (vpH <= 0 || double.IsNaN(vpH))
                 vpH = MainScroller.ActualHeight;
             if (vpH <= 0 || double.IsNaN(vpH))
                 vpH = ActualHeight;
-            double contentH = Math.Max(_model.TotalHeight, vpH);
-            if (double.IsNaN(contentH) || double.IsInfinity(contentH)) contentH = 200;
-            ContentGrid.Width = contentW;
-            ContentGrid.Height = contentH;
+            return vpH;
+        }
+
+        private void ApplyLayerSizes(double contentW, double contentH)
+        {
             GridLayer.Width = contentW;
             GridLayer.Height = contentH;
             TrackBgLayer.Width = contentW;
@@ -382,6 +722,40 @@ namespace AudioStudio.Views
             PlayheadLayer.Height = contentH;
             if (_playheadLine != null)
                 _playheadLine.Y2 = contentH;
+        }
+
+        /// <summary>Длительность видимой области таймлайна (для перемещения playhead без клипов).</summary>
+        public double GetTimelineDurationSeconds()
+        {
+            double pps = PixelsPerSecond;
+            if (pps <= 1e-6) return 10;
+            double contentSec = GetContentWidthPx() / pps;
+            double viewportSec = GetViewportWidth() / pps;
+            return Math.Max(Math.Max(contentSec, viewportSec), 10);
+        }
+
+        private void UpdateContentSize()
+        {
+            double vpW = Math.Max(GetViewportWidth(), _fixedViewportMinWidth);
+            double contentW = Math.Max(GetContentWidthPx(), vpW);
+
+            double contentH = _model.TotalHeight;
+            double vpH = GetViewportHeight();
+            if (vpH > contentH)
+                contentH = vpH;
+            if (contentH < 1) contentH = 200;
+            if (double.IsNaN(contentH) || double.IsInfinity(contentH)) contentH = 200;
+
+            ScrollContentHost.MinWidth = vpW;
+            ScrollContentHost.Width = contentW;
+            ContentGrid.MinWidth = vpW;
+            ContentGrid.Width = contentW;
+            ContentGrid.Height = contentH;
+            ApplyLayerSizes(contentW, contentH);
+            ForceTrackBackgroundWidths(contentW);
+
+            ScrollContentHost.InvalidateMeasure();
+            MainScroller.InvalidateMeasure();
         }
 
         public void SetPlayheadTime(double seconds)
@@ -500,13 +874,49 @@ namespace AudioStudio.Views
 
         private void DrawTrackBackgrounds()
         {
-            TrackBgLayer.Children.Clear();
-            _trackBgRects.Clear();
-            double w = ContentGrid.Width;
-            if (w <= 0 || double.IsNaN(w)) w = 200;
+            SyncVisibleTrackBackgrounds(forceAll: true);
+        }
 
-            for (int i = 0; i < _model.NumTracks; i++)
+        private void SyncVisibleTrackBackgrounds(bool forceAll = false)
+        {
+            double w = GetContentWidthPx();
+
+            if (forceAll || _model.NumTracks <= TrackBgVirtualizeThreshold)
             {
+                foreach (var kvp in _trackBgByIndex.ToList())
+                {
+                    kvp.Value.Width = w;
+                    Canvas.SetLeft(kvp.Value, 0);
+                }
+            }
+
+            int minTrack = 0;
+            int maxTrack = _model.NumTracks - 1;
+            if (!forceAll && _model.NumTracks > TrackBgVirtualizeThreshold)
+            {
+                var (_, _, minY, maxY) = GetVisibleViewportPx();
+                minTrack = Math.Max(0, (int)Math.Floor(minY / _model.TrackHeight));
+                maxTrack = Math.Min(_model.NumTracks - 1, (int)Math.Ceiling(maxY / _model.TrackHeight));
+            }
+
+            foreach (var i in _trackBgByIndex.Keys.Where(i => i < minTrack || i > maxTrack).ToList())
+            {
+                if (_trackBgByIndex.TryGetValue(i, out var rect))
+                {
+                    TrackBgLayer.Children.Remove(rect);
+                    _trackBgByIndex.Remove(i);
+                }
+            }
+
+            for (int i = minTrack; i <= maxTrack; i++)
+            {
+                if (_trackBgByIndex.TryGetValue(i, out var existing))
+                {
+                    existing.Width = w;
+                    Canvas.SetLeft(existing, 0);
+                    continue;
+                }
+
                 var rect = new Rectangle
                 {
                     Width = w,
@@ -516,18 +926,11 @@ namespace AudioStudio.Views
                         : Color.FromRgb(22, 22, 26)),
                     IsHitTestVisible = false
                 };
+                Canvas.SetLeft(rect, 0);
                 Canvas.SetTop(rect, i * _model.TrackHeight);
-                _trackBgRects.Add(rect);
+                _trackBgByIndex[i] = rect;
                 TrackBgLayer.Children.Add(rect);
             }
-        }
-
-        private void UpdateTrackBackgroundWidths()
-        {
-            double w = ContentGrid.Width;
-            if (w <= 0 || double.IsNaN(w)) return;
-            foreach (var rect in _trackBgRects)
-                rect.Width = w;
         }
 
         private double PixelsPerSecond => _model.ZoomX * _model.TicksPerSecond;
@@ -610,26 +1013,22 @@ namespace AudioStudio.Views
             double y = clip.TrackIndex * _model.TrackHeight + 3;
             double h = _model.TrackHeight - 6;
 
-            Color clipColor;
-            try { clipColor = (Color)ColorConverter.ConvertFromString(clip.Color); }
-            catch { clipColor = Color.FromRgb(120, 129, 255); }
+            Color clipColor = ParseClipColor(clip);
 
             var border = new Border
             {
                 Width = Math.Max(4, w),
                 Height = Math.Max(4, h),
                 CornerRadius = new CornerRadius(2),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(60, 180, 180, 180)),
+                BorderBrush = NormalBorderBrush,
                 BorderThickness = new Thickness(0.5),
-                Background = new SolidColorBrush(Color.FromArgb(50, clipColor.R, clipColor.G, clipColor.B)),
+                Background = CreateClipBackgroundBrush(clipColor, selected: false),
                 ClipToBounds = true,
                 Cursor = Cursors.Hand,
                 Tag = clip.Id
             };
 
             var inner = new Grid();
-            inner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            inner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(5) });
 
             var contentCanvas = new Canvas
             {
@@ -639,7 +1038,6 @@ namespace AudioStudio.Views
                 IsHitTestVisible = false
             };
             DrawClipContent(contentCanvas, clip, w, h);
-            Grid.SetColumnSpan(contentCanvas, 2);
             inner.Children.Add(contentCanvas);
 
             var text = new TextBlock
@@ -648,31 +1046,26 @@ namespace AudioStudio.Views
                 Foreground = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)),
                 FontSize = 10,
                 FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(4, 2, 0, 0),
+                Margin = new Thickness(4, 2, 8, 0),
                 VerticalAlignment = VerticalAlignment.Top,
+                HorizontalAlignment = HorizontalAlignment.Left,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                Effect = new System.Windows.Media.Effects.DropShadowEffect
-                {
-                    Color = Colors.Black,
-                    Direction = 0,
-                    ShadowDepth = 1,
-                    Opacity = 0.6,
-                    BlurRadius = 1
-                }
+                IsHitTestVisible = false
             };
-            Grid.SetColumn(text, 0);
+            Panel.SetZIndex(text, 1);
+            inner.Children.Add(text);
 
             var grip = new Rectangle
             {
                 Width = 5,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Stretch,
                 Fill = Brushes.Transparent,
                 Cursor = Cursors.SizeWE,
                 IsHitTestVisible = true,
                 ToolTip = "Изменить длину"
             };
-            Grid.SetColumn(grip, 1);
-
-            inner.Children.Add(text);
+            Panel.SetZIndex(grip, 2);
             inner.Children.Add(grip);
             border.Child = inner;
 
@@ -682,7 +1075,7 @@ namespace AudioStudio.Views
 
             border.MouseLeftButtonDown += Clip_MouseLeftButtonDown;
             border.MouseRightButtonDown += Clip_MouseRightButtonDown;
-            ApplySelectionStyle(border, clip.Id == _selectedClipId);
+            ApplySelectionStyle(border, _selectedClipIds.Contains(clip.Id));
             return border;
         }
 
@@ -691,16 +1084,37 @@ namespace AudioStudio.Views
         private static readonly SolidColorBrush NormalBorderBrush =
             new(Color.FromArgb(60, 180, 180, 180));
 
+        private static SolidColorBrush CreateClipBackgroundBrush(Color clipColor, bool selected)
+        {
+            byte alpha = selected ? (byte)95 : (byte)50;
+            var brush = new SolidColorBrush(Color.FromArgb(alpha, clipColor.R, clipColor.G, clipColor.B));
+            brush.Freeze();
+            return brush;
+        }
+
+        private static Color ParseClipColor(TrackItemViewModel clip)
+        {
+            try { return (Color)ColorConverter.ConvertFromString(clip.Color)!; }
+            catch { return Color.FromRgb(120, 129, 255); }
+        }
+
         private void ApplySelectionStyle(Border border, bool selected)
         {
             border.BorderBrush = selected ? SelectedBorderBrush : NormalBorderBrush;
             border.BorderThickness = selected ? new Thickness(2) : new Thickness(0.5);
+
+            if (border.Tag is Guid clipId)
+            {
+                var clip = _model.AudioClips.FirstOrDefault(c => c.Id == clipId);
+                if (clip != null)
+                    border.Background = CreateClipBackgroundBrush(ParseClipColor(clip), selected);
+            }
         }
 
         private void UpdateSelectionVisuals()
         {
             foreach (var kvp in _clipVisuals)
-                ApplySelectionStyle(kvp.Value, kvp.Key == _selectedClipId);
+                ApplySelectionStyle(kvp.Value, _selectedClipIds.Contains(kvp.Key));
         }
 
         private void DrawClipContent(Canvas canvas, TrackItemViewModel clip, double width, double height)
@@ -711,8 +1125,14 @@ namespace AudioStudio.Views
                 if (_showSpectrogramInClip)
                     DrawSpectrogramGraph(canvas, peaks, width, height);
                 else
-                    DrawWaveformInClip(canvas, peaks, width, height);
+                    DrawWaveformInClip(canvas, peaks, width, height, clip.Id);
             }
+        }
+
+        private void ClearWaveformCache(Guid clipId)
+        {
+            foreach (var key in _waveformGeometryCache.Keys.Where(k => k.Id == clipId).ToList())
+                _waveformGeometryCache.Remove(key);
         }
 
         private static double ComputePeakScale(float[] peaks, double centerY, double fillRatio = 0.88)
@@ -724,17 +1144,48 @@ namespace AudioStudio.Views
             return maxPeak > 1e-6f ? amplitude / maxPeak : amplitude;
         }
 
-        private void DrawWaveformInClip(Canvas canvas, float[] peaks, double width, double height)
+        private void DrawWaveformInClip(Canvas canvas, float[] peaks, double width, double height, Guid clipId)
         {
             canvas.Children.Clear();
             if (peaks.Length == 0 || width < 2 || height < 2) return;
 
+            int widthKey = Math.Max(10, (int)Math.Round(width));
+            var cacheKey = (clipId, widthKey);
+            if (Math.Abs(width - widthKey) > 0.5
+                || !_waveformGeometryCache.TryGetValue(cacheKey, out var geoms))
+            {
+                geoms = BuildWaveformGeometries(peaks, width, height);
+                if (Math.Abs(width - widthKey) <= 0.5)
+                {
+                    geoms.Top.Freeze();
+                    geoms.Bottom.Freeze();
+                    _waveformGeometryCache[cacheKey] = geoms;
+                }
+            }
+
+            var fillBrush = new SolidColorBrush(Color.FromArgb(220, 255, 255, 255));
+            fillBrush.Freeze();
+
+            canvas.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = geoms.Top,
+                Fill = fillBrush,
+                Opacity = 0.75
+            });
+            canvas.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = geoms.Bottom,
+                Fill = fillBrush,
+                Opacity = 0.45
+            });
+        }
+
+        private static (Geometry Top, Geometry Bottom) BuildWaveformGeometries(float[] peaks, double width, double height)
+        {
             int n = Math.Min(peaks.Length, Math.Max(10, (int)width));
             double xStep = width / n;
             double centerY = height / 2;
             double scale = ComputePeakScale(peaks, centerY);
-
-            var color = Color.FromArgb(220, 255, 255, 255);
 
             var geom = new PathGeometry();
             var fig = new PathFigure { StartPoint = new Point(0, centerY) };
@@ -749,13 +1200,6 @@ namespace AudioStudio.Views
             fig.Segments.Add(new LineSegment(new Point(width, centerY), true));
             geom.Figures.Add(fig);
 
-            canvas.Children.Add(new System.Windows.Shapes.Path
-            {
-                Data = geom,
-                Fill = new SolidColorBrush(color),
-                Opacity = 0.75
-            });
-
             var geom2 = new PathGeometry();
             var fig2 = new PathFigure { StartPoint = new Point(0, centerY) };
             for (int i = 0; i < n; i++)
@@ -769,12 +1213,7 @@ namespace AudioStudio.Views
             fig2.Segments.Add(new LineSegment(new Point(width, centerY), true));
             geom2.Figures.Add(fig2);
 
-            canvas.Children.Add(new System.Windows.Shapes.Path
-            {
-                Data = geom2,
-                Fill = new SolidColorBrush(color),
-                Opacity = 0.45
-            });
+            return (geom, geom2);
         }
 
         private void DrawSpectrogramGraph(Canvas canvas, float[] peaks, double width, double height)
@@ -821,7 +1260,16 @@ namespace AudioStudio.Views
 
         private void UpdateClipVisual(TrackItemViewModel clip, bool layoutOnly = false)
         {
-            if (!_clipVisuals.TryGetValue(clip.Id, out var border)) return;
+            if (!_clipVisuals.TryGetValue(clip.Id, out var border))
+            {
+                if (!IsClipInViewport(clip) && !(_isDragging && (_activeClip?.Id == clip.Id || _moveClipIds.Contains(clip.Id))))
+                    return;
+                border = CreateClipVisual(clip);
+                _clipVisuals[clip.Id] = border;
+                ClipLayer.Children.Add(border);
+                EnsurePlayheadHitAreaOnTop();
+                layoutOnly = false;
+            }
             double w = Math.Max(4, clip.DurationTicks * _model.ZoomX);
             double h = _model.TrackHeight - 6;
             border.Width = w;
@@ -831,10 +1279,13 @@ namespace AudioStudio.Views
 
             if (border.Child is Grid inner && inner.Children.Count > 0 && inner.Children[0] is Canvas contentCanvas)
             {
-                contentCanvas.Width = w;
+                double drawW = Math.Max(4, w);
+                bool sizeChanged = Math.Abs(contentCanvas.Width - drawW) > 0.5
+                                   || Math.Abs(contentCanvas.Height - h) > 0.5;
+                contentCanvas.Width = drawW;
                 contentCanvas.Height = h;
-                if (!layoutOnly)
-                    DrawClipContent(contentCanvas, clip, w, h);
+                if (!layoutOnly || sizeChanged)
+                    DrawClipContent(contentCanvas, clip, drawW, h);
             }
         }
 
@@ -852,8 +1303,12 @@ namespace AudioStudio.Views
                 _zoomWaveformTimer.Tick += (_, _) =>
                 {
                     _zoomWaveformTimer!.Stop();
-                    foreach (var clip in _model.AudioClips)
-                        UpdateClipVisual(clip, layoutOnly: false);
+                    foreach (var kvp in _clipVisuals.ToList())
+                    {
+                        var clip = _model.AudioClips.FirstOrDefault(c => c.Id == kvp.Key);
+                        if (clip != null)
+                            UpdateClipVisual(clip, layoutOnly: false);
+                    }
                 };
             }
             _zoomWaveformTimer.Stop();
@@ -884,6 +1339,12 @@ namespace AudioStudio.Views
 
         private bool HitTestClipAt(Point posInClipLayer)
         {
+            return HitTestClipModelAt(posInClipLayer) != null;
+        }
+
+        private TrackItemViewModel? HitTestClipModelAt(Point posInClipLayer)
+        {
+            TrackItemViewModel? hit = null;
             foreach (var clip in _model.AudioClips)
             {
                 double left = clip.StartTick * _model.ZoomX;
@@ -892,13 +1353,219 @@ namespace AudioStudio.Views
                 double h = _model.TrackHeight - 6;
                 if (posInClipLayer.X >= left && posInClipLayer.X <= left + w
                     && posInClipLayer.Y >= top && posInClipLayer.Y <= top + h)
-                    return true;
+                    hit = clip;
             }
-            return false;
+            return hit;
+        }
+
+        private void ClipLayer_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            var pos = e.GetPosition(ClipLayer);
+            var clip = HitTestClipModelAt(pos);
+            if (clip == null) return;
+
+            HandleClipMouseDown(clip, pos, e);
+            e.Handled = true;
+        }
+
+        private void ClipLayer_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            var pos = e.GetPosition(ClipLayer);
+            var clip = HitTestClipModelAt(pos);
+            if (clip == null) return;
+
+            SelectClip(clip.Id, raiseEvent: true, preserveMultiSelection: true);
+            ClipContextMenuRequested?.Invoke(clip);
+            e.Handled = true;
+        }
+
+        private void HandleClipMouseDown(TrackItemViewModel clip, Point pos, MouseButtonEventArgs e)
+        {
+            _activeClip = clip;
+            var clipId = clip.Id;
+
+            double clipLeftPx = clip.StartTick * _model.ZoomX;
+            double clipRightPx = clipLeftPx + clip.DurationTicks * _model.ZoomX;
+
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+            {
+                SelectClip(clipId, raiseEvent: true, additive: false);
+                _dragMode = DragMode.SelectRange;
+                _selectStartLocalX = Math.Clamp(pos.X - clipLeftPx, 0, clipRightPx - clipLeftPx);
+                _selectEndLocalX = _selectStartLocalX;
+                _dragStartPoint = pos;
+                _isDragging = false;
+                UpdateRangeSelectionVisual();
+                return;
+            }
+
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) && _selectedClipId.HasValue)
+            {
+                var anchor = _model.AudioClips.FirstOrDefault(c => c.Id == _selectedClipId.Value);
+                if (anchor != null && anchor.TrackIndex == clip.TrackIndex)
+                {
+                    double minTick = Math.Min(anchor.StartTick, clip.StartTick);
+                    double maxTick = Math.Max(anchor.EndTick, clip.EndTick);
+                    var ids = _model.AudioClips
+                        .Where(c => c.TrackIndex == anchor.TrackIndex
+                            && c.StartTick < maxTick - 0.01
+                            && c.EndTick > minTick + 0.01)
+                        .Select(c => c.Id)
+                        .ToList();
+                    if (ids.Count > 0)
+                        SelectClips(ids, raiseEvent: true);
+                    _dragMode = DragMode.None;
+                    return;
+                }
+            }
+
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            {
+                if (_selectedClipIds.Contains(clipId) && _selectedClipIds.Count > 1)
+                {
+                    _selectedClipId = clipId;
+                    UpdateSelectionVisuals();
+                    ClipSelected?.Invoke(clip);
+                }
+                else
+                {
+                    SelectClip(clipId, raiseEvent: true, additive: true);
+                    _dragMode = DragMode.None;
+                    return;
+                }
+            }
+            else if (_selectedClipIds.Contains(clipId) && _selectedClipIds.Count > 1)
+            {
+                _selectedClipId = clipId;
+                UpdateSelectionVisuals();
+                ClipSelected?.Invoke(clip);
+            }
+            else
+            {
+                SelectClip(clipId, raiseEvent: true, additive: false);
+            }
+
+            _dragMode = Math.Abs(pos.X - clipRightPx) < 8 ? DragMode.ResizeRight : DragMode.Move;
+            _dragStartPoint = pos;
+            _dragStartTick = clip.StartTick;
+            _dragStartTrack = clip.TrackIndex;
+            _dragStartDuration = clip.DurationTicks;
+            _isDragging = false;
+            PrepareMoveDrag(clip);
+        }
+
+        private void PrepareMoveDrag(TrackItemViewModel clip)
+        {
+            _moveClipIds.Clear();
+            _dragStartPositions.Clear();
+
+            if (_dragMode == DragMode.Move && _selectedClipIds.Count > 1 && _selectedClipIds.Contains(clip.Id))
+            {
+                foreach (var id in _selectedClipIds)
+                {
+                    var selected = _model.AudioClips.FirstOrDefault(c => c.Id == id);
+                    if (selected == null) continue;
+                    _moveClipIds.Add(id);
+                    _dragStartPositions[id] = (selected.StartTick, selected.TrackIndex);
+                }
+            }
+            else
+            {
+                _moveClipIds.Add(clip.Id);
+                _dragStartPositions[clip.Id] = (clip.StartTick, clip.TrackIndex);
+            }
+        }
+
+        private List<(Guid Id, double StartTick, int StartTrack, double DurationTicks)> GetMoveDragSnapshot()
+        {
+            var moving = new List<(Guid Id, double StartTick, int StartTrack, double DurationTicks)>();
+            foreach (var id in _moveClipIds)
+            {
+                var movingClip = _model.AudioClips.FirstOrDefault(c => c.Id == id);
+                if (movingClip == null || !_dragStartPositions.TryGetValue(id, out var start))
+                    continue;
+                moving.Add((id, start.Tick, start.Track, movingClip.DurationTicks));
+            }
+            return moving;
+        }
+
+        private void ApplyMoveDelta(double tickDelta, int trackDelta)
+        {
+            var moving = GetMoveDragSnapshot();
+            if (moving.Count == 0) return;
+
+            tickDelta = _model.ClampGroupTickDelta(moving, tickDelta, trackDelta);
+
+            foreach (var id in _moveClipIds)
+            {
+                var movingClip = _model.AudioClips.FirstOrDefault(c => c.Id == id);
+                if (movingClip == null) continue;
+                var (startTick, startTrack) = _dragStartPositions[id];
+                movingClip.StartTick = Math.Max(0, startTick + tickDelta);
+                movingClip.TrackIndex = Math.Clamp(startTrack + trackDelta, 0, Math.Max(0, _model.NumTracks - 1));
+                UpdateClipVisual(movingClip, layoutOnly: true);
+            }
+        }
+
+        private void RevertMoveDrag()
+        {
+            foreach (var id in _moveClipIds)
+            {
+                var movingClip = _model.AudioClips.FirstOrDefault(c => c.Id == id);
+                if (movingClip == null || !_dragStartPositions.TryGetValue(id, out var start)) continue;
+                movingClip.StartTick = start.Tick;
+                movingClip.TrackIndex = start.Track;
+                UpdateClipVisual(movingClip);
+            }
+        }
+
+        private void CommitMoveDrag()
+        {
+            if (_activeClip == null || _moveClipIds.Count == 0) return;
+
+            int trackDelta = _activeClip.TrackIndex - _dragStartTrack;
+            var moving = GetMoveDragSnapshot();
+            double tickDelta = _activeClip.StartTick - _dragStartTick;
+            tickDelta = _model.SnapToGrid(_dragStartTick + tickDelta) - _dragStartTick;
+            tickDelta = _model.ClampGroupTickDelta(moving, tickDelta, trackDelta);
+
+            var excludeIds = _moveClipIds.ToList();
+            var moves = new List<(TrackItemViewModel Clip, double OldTick, int OldTrack, double NewTick, int NewTrack)>();
+
+            foreach (var id in _moveClipIds.OrderBy(i => _dragStartPositions.TryGetValue(i, out var s) ? s.Tick : 0))
+            {
+                var movingClip = _model.AudioClips.FirstOrDefault(c => c.Id == id);
+                if (movingClip == null || !_dragStartPositions.TryGetValue(id, out var start)) continue;
+
+                double preferredTick = Math.Max(0, start.Tick + tickDelta);
+                int preferredTrack = Math.Clamp(start.Track + trackDelta, 0, Math.Max(0, _model.NumTracks - 1));
+                _model.ResolveClipPlacement(movingClip, preferredTick, preferredTrack, excludeIds);
+                UpdateClipVisual(movingClip);
+
+                if (Math.Abs(movingClip.StartTick - start.Tick) > 0.01 || movingClip.TrackIndex != start.Track)
+                {
+                    moves.Add((movingClip, start.Tick, start.Track, movingClip.StartTick, movingClip.TrackIndex));
+                }
+            }
+
+            RefreshContentLayout(_moveClipIds);
+
+            if (moves.Count == 1)
+            {
+                var m = moves[0];
+                ClipMoved?.Invoke(m.Clip, m.OldTick, m.OldTrack, m.NewTick, m.NewTrack);
+            }
+            else if (moves.Count > 1)
+            {
+                ClipsMoved?.Invoke(moves);
+            }
         }
 
         private void MainScroller_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
+            if (IsScrollBarPart(e.OriginalSource as DependencyObject))
+                return;
+
             if (IsClipBorder(e.OriginalSource as DependencyObject))
                 return;
 
@@ -934,6 +1601,8 @@ namespace AudioStudio.Views
 
         private void MainScroller_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
+            if (IsScrollBarPart(e.OriginalSource as DependencyObject))
+                return;
             if (e.ChangedButton != MouseButton.Left) return;
             if (_dragMode != DragMode.None)
                 EndDrag();
@@ -942,9 +1611,10 @@ namespace AudioStudio.Views
 
         private void ClipLayer_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (IsClipBorder(e.OriginalSource as DependencyObject))
-                return;
             Point pos = e.GetPosition(ClipLayer);
+            if (HitTestClipAt(pos))
+                return;
+
             var (track, tick) = GetEmptyAreaHit(pos);
             EmptyAreaInteracted?.Invoke(track, tick, true);
             e.Handled = true;
@@ -952,46 +1622,42 @@ namespace AudioStudio.Views
 
         private void Clip_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            var border = (Border)sender;
-            if (border.Tag is not Guid clipId) return;
-            if (!_model.AudioClips.Any(c => c.Id == clipId)) return;
-            _activeClip = _model.AudioClips.First(c => c.Id == clipId);
-
-            Point pos = e.GetPosition(ClipLayer);
-            double clipLeftPx = _activeClip.StartTick * _model.ZoomX;
-            double clipRightPx = clipLeftPx + _activeClip.DurationTicks * _model.ZoomX;
-
-            if (Keyboard.Modifiers == ModifierKeys.Control)
+            if (sender is Border border && border.Tag is Guid clipId)
             {
-                SelectClip(clipId, raiseEvent: true);
-                _dragMode = DragMode.SelectRange;
-                _selectStartLocalX = Math.Clamp(pos.X - clipLeftPx, 0, clipRightPx - clipLeftPx);
-                _selectEndLocalX = _selectStartLocalX;
-                _dragStartPoint = pos;
-                _isDragging = false;
-                UpdateRangeSelectionVisual();
-                e.Handled = true;
+                var clip = _model.AudioClips.FirstOrDefault(c => c.Id == clipId);
+                if (clip != null)
+                {
+                    HandleClipMouseDown(clip, e.GetPosition(ClipLayer), e);
+                    e.Handled = true;
+                    return;
+                }
+
+                RemoveClipVisual(clipId);
+                PurgeOrphanClipVisuals();
+                e.Handled = false;
                 return;
             }
-
-            _dragMode = Math.Abs(pos.X - clipRightPx) < 8 ? DragMode.ResizeRight : DragMode.Move;
-            _dragStartPoint = pos;
-            _dragStartTick = _activeClip.StartTick;
-            _dragStartTrack = _activeClip.TrackIndex;
-            _dragStartDuration = _activeClip.DurationTicks;
-            _isDragging = false;
             e.Handled = true;
         }
 
         private void Clip_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
-            var border = (Border)sender;
-            if (border.Tag is not Guid clipId) return;
-            var clip = _model.AudioClips.FirstOrDefault(c => c.Id == clipId);
-            if (clip == null) return;
+            if (sender is Border { Tag: Guid clipId })
+            {
+                var clip = _model.AudioClips.FirstOrDefault(c => c.Id == clipId);
+                if (clip != null)
+                {
+                    SelectClip(clipId, raiseEvent: true, preserveMultiSelection: true);
+                    ClipContextMenuRequested?.Invoke(clip);
+                    e.Handled = true;
+                    return;
+                }
 
-            SelectClip(clipId, raiseEvent: true);
-            ClipContextMenuRequested?.Invoke(clip);
+                RemoveClipVisual(clipId);
+                PurgeOrphanClipVisuals();
+                e.Handled = false;
+                return;
+            }
             e.Handled = true;
         }
 
@@ -1037,16 +1703,15 @@ namespace AudioStudio.Views
             switch (_dragMode)
             {
                 case DragMode.Move:
-                    double newTick = _dragStartTick + dx / _model.ZoomX;
-                    int newTrack = _dragStartTrack + (int)Math.Round(dy / _model.TrackHeight);
-                    _activeClip.StartTick = Math.Max(0, newTick);
-                    _activeClip.TrackIndex = Math.Max(0, Math.Min(_model.NumTracks - 1, newTrack));
-                    UpdateClipVisual(_activeClip, layoutOnly: true);
+                    double tickDelta = dx / _model.ZoomX;
+                    int trackDelta = (int)Math.Round(dy / _model.TrackHeight);
+                    ApplyMoveDelta(tickDelta, trackDelta);
                     break;
 
                 case DragMode.ResizeRight:
                     double newDuration = _dragStartDuration + dx / _model.ZoomX;
                     _activeClip.DurationTicks = Math.Max(TrackItemViewModel.PPQN / 4, newDuration);
+                    _model.ClampClipDurationToTrack(_activeClip, TrackItemViewModel.PPQN / 4);
                     UpdateClipVisual(_activeClip, layoutOnly: true);
                     break;
             }
@@ -1085,37 +1750,21 @@ namespace AudioStudio.Views
             }
             else if (_dragMode == DragMode.Move)
             {
-                double preferredTick = Math.Max(0, _model.SnapToGrid(_activeClip.StartTick));
-                int preferredTrack = _activeClip.TrackIndex;
-                _model.ResolveClipPlacement(_activeClip, preferredTick, preferredTrack);
-                UpdateClipVisual(_activeClip);
-                UpdateContentSize();
-                RefreshTrackBackgrounds();
-                InvalidateGridCache();
-                DrawGridLines(force: true);
-
-                bool moved = Math.Abs(_activeClip.StartTick - _dragStartTick) > 0.01
-                    || _activeClip.TrackIndex != _dragStartTrack;
-                if (moved)
-                {
-                    ClipMoved?.Invoke(_activeClip, _dragStartTick, _dragStartTrack,
-                        _activeClip.StartTick, _activeClip.TrackIndex);
-                }
-                else if (!_isDragging)
-                {
-                    SelectClip(_activeClip.Id, raiseEvent: true);
-                }
+                if (_isDragging)
+                    CommitMoveDrag();
+                else
+                    SelectClip(_activeClip.Id, raiseEvent: true, preserveMultiSelection: true);
             }
             else if (_isDragging && _dragMode == DragMode.ResizeRight)
             {
                 double snappedEnd = _model.SnapToGrid(_activeClip.StartTick + _activeClip.DurationTicks);
+                double maxEnd = _model.GetMaxAllowedEndTick(_activeClip);
+                if (snappedEnd > maxEnd)
+                    snappedEnd = maxEnd;
                 double newDur = snappedEnd - _activeClip.StartTick;
                 _activeClip.DurationTicks = Math.Max(TrackItemViewModel.PPQN / 4, newDur);
                 UpdateClipVisual(_activeClip);
-                UpdateContentSize();
-                RefreshTrackBackgrounds();
-                InvalidateGridCache();
-                DrawGridLines(force: true);
+                RefreshContentLayout(new HashSet<Guid> { _activeClip.Id });
                 if (Math.Abs(_activeClip.DurationTicks - _dragStartDuration) > 0.01)
                     ClipResized?.Invoke(_activeClip, _dragStartDuration, _activeClip.DurationTicks);
             }
@@ -1123,6 +1772,9 @@ namespace AudioStudio.Views
             _dragMode = DragMode.None;
             _activeClip = null;
             _isDragging = false;
+            _moveClipIds.Clear();
+            _dragStartPositions.Clear();
+            SyncVisibleClips();
             if (ClipLayer.IsMouseCaptured)
                 ClipLayer.ReleaseMouseCapture();
         }
@@ -1132,11 +1784,7 @@ namespace AudioStudio.Views
             if (revertChanges && _isDragging && _activeClip != null)
             {
                 if (_dragMode == DragMode.Move)
-                {
-                    _activeClip.StartTick = _dragStartTick;
-                    _activeClip.TrackIndex = _dragStartTrack;
-                    UpdateClipVisual(_activeClip);
-                }
+                    RevertMoveDrag();
                 else if (_dragMode == DragMode.ResizeRight)
                 {
                     _activeClip.DurationTicks = _dragStartDuration;
@@ -1153,6 +1801,8 @@ namespace AudioStudio.Views
             _dragMode = DragMode.None;
             _activeClip = null;
             _isDragging = false;
+            _moveClipIds.Clear();
+            _dragStartPositions.Clear();
             EndPlayheadDrag();
             if (ClipLayer.IsMouseCaptured)
                 ClipLayer.ReleaseMouseCapture();
@@ -1246,13 +1896,11 @@ namespace AudioStudio.Views
             UpdateContentSize();
             UpdateAllClipLayouts(layoutOnly: true);
             ScheduleZoomWaveformRedraw();
-            if (_trackBgRects.Count == _model.NumTracks)
-                UpdateTrackBackgroundWidths();
-            else
-                DrawTrackBackgrounds();
+            DrawTrackBackgrounds();
             DrawGridLines(force: true);
             UpdatePlayheadPosition();
             DrawTimeSelection();
+            SyncVisibleClips();
         }
 
         #endregion
@@ -1263,9 +1911,8 @@ namespace AudioStudio.Views
         {
             CancelActiveInteraction(revertChanges: true);
 
-            Point pos = e.GetPosition(this);
-            double scrollX = MainScroller.HorizontalOffset;
-            double tickPos = (pos.X + scrollX) / _model.ZoomX;
+            Point pos = e.GetPosition(ClipLayer);
+            double tickPos = (pos.X + MainScroller.HorizontalOffset) / GetEffectiveZoom();
             int trackIndex = (int)(pos.Y / _model.TrackHeight);
             trackIndex = Math.Max(0, Math.Min(_model.NumTracks - 1, trackIndex));
 
@@ -1310,10 +1957,11 @@ namespace AudioStudio.Views
                     SampleRate = sampleRate,
                     Channels = channels,
                     SourceDurationSeconds = durationSec,
-                    StartTick = _model.SnapToGrid(tickPos),
                     DurationTicks = Math.Max(TrackItemViewModel.PPQN / 4, durationTicks),
                     TrackIndex = trackIndex
                 };
+
+                _model.ResolveClipPlacement(clip, tickPos, trackIndex);
 
                 _peaksCache[clip.Id] = peaks;
                 _model.AudioClips.Add(clip);

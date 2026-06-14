@@ -15,7 +15,7 @@ namespace AudioStudio.ContextMenus
         private MainWindow? _mainWindow;
         private bool _isOpen;
 
-        private const string ClipHints = "Ctrl+ЛКМ — выделить область на записи";
+        private const string ClipHints = "Ctrl+клик — несколько клипов\nShift+клик — диапазон на дорожке\nCtrl+Shift+ЛКМ — область на записи";
         private const string EmptyTrackHints = "Вставить вырезанную или скопированную запись";
 
         public AudioContextMenu()
@@ -51,6 +51,7 @@ namespace AudioStudio.ContextMenus
             _panel.Children.Add(CreateItem("Вырезать", "Cut", "Ctrl+X", itemStyle));
             _panel.Children.Add(CreateItem("Копировать", "Copy", "Ctrl+C", itemStyle));
             _panel.Children.Add(CreateItem("Вставить", "Paste", "Ctrl+V", itemStyle));
+            _panel.Children.Add(CreateItem("Склеить выбранные клипы", "Merge", null, itemStyle));
             _panel.Children.Add(new Separator { Style = sepStyle });
             _panel.Children.Add(CreateItem("Удалить", "Delete", "Del", itemStyle));
             _panel.Children.Add(CreateItem("Очистить трек", "ClearTrack", null, itemStyle));
@@ -165,6 +166,7 @@ namespace AudioStudio.ContextMenus
                         "Cut" => _mainWindow.HasSelection(),
                         "Copy" => _mainWindow.HasSelection(),
                         "Paste" => _mainWindow.HasClipboard(), // always when clipboard has data
+                        "Merge" => _mainWindow.SelectedPlaylistClipCount >= 2,
                         "Delete" => _mainWindow.HasSelection()
                             || _mainWindow.HasSelectedPlaylistClip(),
                         "ClearTrack" => _mainWindow.HasSelectedPlaylistClip()
@@ -188,6 +190,7 @@ namespace AudioStudio.ContextMenus
                     case "Cut": _mainWindow.Cut_Click(btn, e); break;
                     case "Copy": _mainWindow.Copy_Click(btn, e); break;
                     case "Paste": _mainWindow.Paste_Click(btn, e); break;
+                    case "Merge": _mainWindow.MergeSelectedClips_Click(btn, e); break;
                     case "Delete": _mainWindow.Delete_Click(btn, e); break;
                     case "ClearTrack": _mainWindow.ClearTrack_Click(btn, e); break;
                     case "SelectAll": _mainWindow.SelectAll(); break;

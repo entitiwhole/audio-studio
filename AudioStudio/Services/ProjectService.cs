@@ -10,7 +10,7 @@ public static class ProjectService
     private const string AudioSubfolder = "Audio";
 
     public static string ProjectsDirectory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BFStudio", "Projects");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bnote", "Projects");
 
     public static StudioProject CreateSnapshot(PlaylistViewModel model, IEnumerable<TrackItemViewModel> clips, string? name = null)
     {

@@ -31,12 +31,7 @@ public class AudioEngine
     {
         Stop();
 
-        if (clips.All(c => c.Samples.Length == 0))
-            return;
-
-        // Мастер-формат для всех треков
         var masterFormat = WaveFormat.CreateIeeeFloatWaveFormat(_masterSampleRate, _masterChannels);
-        
         _mixer = new MixingSampleProvider(masterFormat);
         _providers.Clear();
 
@@ -91,13 +86,13 @@ public class AudioEngine
 
     private void OnWaveOutPlaybackStopped(object? sender, StoppedEventArgs e)
     {
-        _clock.Stop();
         if (_manualStop)
         {
             _manualStop = false;
             return;
         }
 
+        _clock.Stop();
         OnPlaybackStopped?.Invoke();
     }
     
@@ -120,8 +115,12 @@ public class AudioEngine
 
     public void Play()
     {
-        _waveOut?.Play();
-        _clock.Start();
+        if (_waveOut == null) return;
+        _waveOut.Play();
+        if (_clock.IsRunning)
+            _clock.Restart();
+        else
+            _clock.Start();
     }
 
     public void Pause()

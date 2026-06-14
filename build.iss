@@ -1,8 +1,8 @@
-; BF^Studio Installer Script
+; Bnote Installer Script
 ; Inno Setup 6
 
-#define MyAppName "BF^Studio"
-#define MyAppVersion "1.0.5"
+#define MyAppName "Bnote"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "PRYTEK Vision"
 #define SourcePath "E:\Atest1.0\AudioStudio\publish"
 
@@ -11,22 +11,22 @@ AppId=7C5E1F2A-8B4D-4E3F-A2B1-C9D0E5F6A7B3
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={pf}\BF^Studio
+DefaultDirName={pf}\Bnote
 DisableProgramGroupPage=yes
-DefaultGroupName=BF^Studio
+DefaultGroupName=Bnote
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 OutputDir=E:\Atest1.0\AudioStudio\AudioStudioInstaller\Output
-OutputBaseFilename=BFStudio-Setup-{#MyAppVersion}
+OutputBaseFilename=Bnote-Setup-{#MyAppVersion}
 PrivilegesRequired=admin
 UninstallDisplayIcon={app}\AudioStudio.exe
 SetupIconFile=E:\Atest1.0\AudioStudio\AudioStudio\hd_067e60e1d37959fea8c10910f1bec3f4-_1_-1.ico
-VersionInfoVersion=1.0.5.0
+VersionInfoVersion=1.1.0.0
 VersionInfoCompany=PRYTEK Vision
-VersionInfoDescription=BF^Studio Installer
-VersionInfoProductName=BF^Studio
-VersionInfoProductVersion=1.0.5.0
+VersionInfoDescription=Bnote Installer
+VersionInfoProductName=Bnote
+VersionInfoProductVersion=1.1.0.0
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
@@ -40,11 +40,11 @@ Name: "startmenu"; Description: "Create Start Menu shortcut"; GroupDescription: 
 Source: "{#SourcePath}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\BF^Studio"; Filename: "{app}\AudioStudio.exe"; Tasks: startmenu
-Name: "{autodesktop}\BF^Studio"; Filename: "{app}\AudioStudio.exe"; Tasks: desktopicon
+Name: "{autoprograms}\Bnote"; Filename: "{app}\AudioStudio.exe"; Tasks: startmenu
+Name: "{autodesktop}\Bnote"; Filename: "{app}\AudioStudio.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\AudioStudio.exe"; Description: "Run BF^Studio"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\AudioStudio.exe"; Description: "Run Bnote"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

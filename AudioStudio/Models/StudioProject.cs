@@ -5,7 +5,7 @@ public class StudioProject
     public int Version { get; set; } = 1;
     public string Name { get; set; } = "Untitled";
     public int Bpm { get; set; } = 128;
-    public int NumTracks { get; set; } = 4;
+    public int NumTracks { get; set; } = 8;
     public List<StudioProjectClip> Clips { get; set; } = new();
 }
 

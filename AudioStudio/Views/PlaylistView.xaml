@@ -6,17 +6,20 @@
                   VerticalScrollBarVisibility="Auto"
                   Background="#1E1E1E"
                   ScrollChanged="OnScrollChanged">
-        <Grid x:Name="ContentGrid" ClipToBounds="True">
-            <Canvas x:Name="GridLayer"/>
-            <Canvas x:Name="TrackBgLayer"/>
-            <Canvas x:Name="ClipLayer"
-                    Background="#01000000"
-                    MouseMove="ClipLayer_MouseMove"
-                    MouseUp="ClipLayer_MouseUp"
-                    MouseLeave="ClipLayer_MouseLeave"
-                    MouseRightButtonDown="ClipLayer_MouseRightButtonDown"/>
-            <Canvas x:Name="SelectionLayer" IsHitTestVisible="False"/>
-            <Canvas x:Name="PlayheadLayer" Background="{x:Null}" IsHitTestVisible="False"/>
+        <!-- MinWidth viewport: дорожки не сужаются вместе с коротким клипом -->
+        <Grid x:Name="ScrollContentHost" HorizontalAlignment="Stretch">
+            <Grid x:Name="ContentGrid" HorizontalAlignment="Stretch" ClipToBounds="True">
+                <Canvas x:Name="GridLayer"/>
+                <Canvas x:Name="TrackBgLayer"/>
+                <Canvas x:Name="ClipLayer"
+                        Background="#01000000"
+                        MouseMove="ClipLayer_MouseMove"
+                        MouseUp="ClipLayer_MouseUp"
+                        MouseLeave="ClipLayer_MouseLeave"
+                        MouseRightButtonDown="ClipLayer_MouseRightButtonDown"/>
+                <Canvas x:Name="SelectionLayer" IsHitTestVisible="False"/>
+                <Canvas x:Name="PlayheadLayer" Background="{x:Null}" IsHitTestVisible="True"/>
+            </Grid>
         </Grid>
     </ScrollViewer>
 </UserControl>

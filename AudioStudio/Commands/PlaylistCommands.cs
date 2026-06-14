@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using AudioStudio.Models;
 
 namespace AudioStudio.Commands
@@ -30,6 +31,37 @@ namespace AudioStudio.Commands
             _window.ApplyPlaylistClipLayout(_clipId, _oldTick, _oldTrack, null);
     }
 
+    public class MovePlaylistClipsCommand : IAudioCommand
+    {
+        private readonly MainWindow _window;
+        private readonly List<(Guid ClipId, double OldTick, int OldTrack, double NewTick, int NewTrack)> _moves;
+
+        public string Description =>
+            _moves.Count == 1 ? "Переместить клип" : $"Переместить клипы ({_moves.Count})";
+
+        public MovePlaylistClipsCommand(
+            MainWindow window,
+            List<(Guid ClipId, double OldTick, int OldTrack, double NewTick, int NewTrack)> moves)
+        {
+            _window = window;
+            _moves = moves;
+        }
+
+        public void Execute()
+        {
+            foreach (var move in _moves)
+                _window.ApplyPlaylistClipLayout(move.ClipId, move.NewTick, move.NewTrack, null);
+            _window.CommitPlaylistState();
+        }
+
+        public void Undo()
+        {
+            foreach (var move in _moves)
+                _window.ApplyPlaylistClipLayout(move.ClipId, move.OldTick, move.OldTrack, null);
+            _window.CommitPlaylistState();
+        }
+    }
+
     public class ResizePlaylistClipCommand : IAudioCommand
     {
         private readonly MainWindow _window;
@@ -58,19 +90,40 @@ namespace AudioStudio.Commands
         private readonly MainWindow _window;
         private readonly TrackItemViewModel _clip;
         private readonly float[] _samples;
+        private readonly List<(TrackItemViewModel Clip, float[] Samples)> _replaced;
 
         public string Description => $"Добавить {_clip.Name}";
 
-        public AddPlaylistClipCommand(MainWindow window, TrackItemViewModel clip, float[] samples)
+        public AddPlaylistClipCommand(
+            MainWindow window,
+            TrackItemViewModel clip,
+            float[] samples,
+            List<(TrackItemViewModel Clip, float[] Samples)>? replaced = null)
         {
             _window = window;
             _clip = clip;
             _samples = samples;
+            _replaced = replaced ?? new List<(TrackItemViewModel, float[])>();
         }
 
-        public void Execute() => _window.InsertPlaylistClip(_clip, _samples);
+        public void Execute()
+        {
+            foreach (var (c, _) in _replaced)
+                _window.RemovePlaylistClipInternal(c.Id, refresh: false);
+            _window.InsertPlaylistClip(_clip, _samples, refresh: false);
+            _window.CommitPlaylistState();
+        }
 
-        public void Undo() => _window.RemovePlaylistClipInternal(_clip.Id);
+        public void Undo()
+        {
+            _window.RemovePlaylistClipInternal(_clip.Id, refresh: false);
+            if (_replaced != null)
+            {
+                foreach (var (c, s) in _replaced)
+                    _window.InsertPlaylistClip(c, s, refresh: false);
+            }
+            _window.CommitPlaylistState();
+        }
     }
 
     public class RemovePlaylistClipCommand : IAudioCommand
@@ -121,6 +174,41 @@ namespace AudioStudio.Commands
             TrackIndex = c.TrackIndex,
             Color = c.Color
         };
+    }
+
+    public class RemovePlaylistClipsCommand : IAudioCommand
+    {
+        private readonly MainWindow _window;
+        private readonly List<(TrackItemViewModel Clip, float[] Samples)> _removed;
+
+        public string Description =>
+            _removed.Count == 1
+                ? $"Удалить {_removed[0].Clip.Name}"
+                : $"Удалить клипы ({_removed.Count})";
+
+        public RemovePlaylistClipsCommand(
+            MainWindow window,
+            List<(TrackItemViewModel Clip, float[] Samples)> removed)
+        {
+            _window = window;
+            _removed = removed;
+        }
+
+        public void Execute()
+        {
+            foreach (var (clip, _) in _removed)
+                _window.RemovePlaylistClipInternal(clip.Id, refresh: false);
+            _window.PlaylistViewControl?.ClearClipSelection();
+            _window.CommitPlaylistState();
+        }
+
+        public void Undo()
+        {
+            foreach (var (clip, samples) in _removed)
+                _window.InsertPlaylistClip(clip, samples, refresh: false);
+            _window.PlaylistViewControl?.SelectClips(_removed.Select(r => r.Clip.Id));
+            _window.CommitPlaylistState();
+        }
     }
 
     public class SplicePlaylistSamplesCommand : IAudioCommand
@@ -255,13 +343,15 @@ namespace AudioStudio.Commands
         {
             if (!_added)
             {
-                _window.InsertPlaylistClip(_clip, _samples);
+                _window.InsertPlaylistClip(_clip, _samples, refresh: false);
                 if (_clearCutClipboard) _window.PlaylistClipboard.Clear();
+                _window.CommitPlaylistState();
                 _added = true;
             }
             else
             {
-                _window.InsertPlaylistClip(_clip, _samples);
+                _window.InsertPlaylistClip(_clip, _samples, refresh: false);
+                _window.CommitPlaylistState();
             }
         }
 
@@ -271,6 +361,47 @@ namespace AudioStudio.Commands
             if (_clearCutClipboard)
                 _window.SetPlaylistClipboardWholeClip(_clip, _samples, wasCut: true);
             _added = false;
+        }
+    }
+
+    public class MergePlaylistClipsCommand : IAudioCommand
+    {
+        private readonly MainWindow _window;
+        private readonly List<TrackItemViewModel> _removedClips;
+        private readonly List<float[]> _removedSamples;
+        private readonly TrackItemViewModel _mergedClip;
+        private readonly float[] _mergedSamples;
+        private bool _merged;
+
+        public string Description => "Склеить клипы";
+
+        public MergePlaylistClipsCommand(MainWindow window,
+            List<TrackItemViewModel> removedClips, List<float[]> removedSamples,
+            TrackItemViewModel mergedClip, float[] mergedSamples)
+        {
+            _window = window;
+            _removedClips = removedClips;
+            _removedSamples = removedSamples;
+            _mergedClip = mergedClip;
+            _mergedSamples = mergedSamples;
+        }
+
+        public void Execute()
+        {
+            foreach (var clip in _removedClips)
+                _window.RemovePlaylistClipInternal(clip.Id);
+            _window.InsertPlaylistClip(_mergedClip, _mergedSamples);
+            _window.SelectPlaylistClip(_mergedClip.Id);
+            _merged = true;
+        }
+
+        public void Undo()
+        {
+            _window.RemovePlaylistClipInternal(_mergedClip.Id);
+            for (int i = 0; i < _removedClips.Count; i++)
+                _window.InsertPlaylistClip(_removedClips[i], _removedSamples[i]);
+            _window.SelectPlaylistClips(_removedClips.Select(c => c.Id));
+            _merged = false;
         }
     }
 }

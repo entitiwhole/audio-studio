@@ -5,7 +5,7 @@
         xmlns:controls="clr-namespace:AudioStudio.Controls"
         xmlns:fa="clr-namespace:FontAwesome.Sharp;assembly=FontAwesome.Sharp"
         xmlns:views="clr-namespace:AudioStudio.Views"
-        Title="BF^Studio" 
+        Title="Bnote" 
         Height="800" Width="1400"
         MinHeight="600" MinWidth="1100"
         ShowInTaskbar="True"
@@ -709,11 +709,14 @@
 
                         <!-- Transport: Play / Stop / Loop -->
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Panel.ZIndex="10">
-                            <Button x:Name="BtnPlay" Style="{StaticResource PlayButton}" Click="Play_Click" IsEnabled="False">
+                            <Button x:Name="BtnPlay" Style="{StaticResource PlayButton}" Click="Play_Click" IsEnabled="False" ToolTip="Воспроизведение / Пауза (Space)">
                                 <fa:IconBlock Icon="Play" Foreground="White" FontSize="16"/>
                             </Button>
-                            <Button x:Name="BtnStop" Style="{StaticResource StopButton}" Click="Stop_Click" IsEnabled="False" Margin="6,0,0,0">
+                            <Button x:Name="BtnStop" Style="{StaticResource StopButton}" Click="Stop_Click" IsEnabled="False" Margin="6,0,0,0" ToolTip="Стоп (K)">
                                 <fa:IconBlock Icon="Stop" Foreground="#FFCCCCCC" FontSize="13"/>
+                            </Button>
+                            <Button x:Name="BtnRestart" Style="{StaticResource ToolButton}" Click="Restart_Click" IsEnabled="False" Margin="6,0,0,0" ToolTip="Перезапуск (R)">
+                                <fa:IconBlock Icon="RotateLeft" Foreground="#FFAAAAAA" FontSize="14"/>
                             </Button>
                             <Button x:Name="BtnLoop" Style="{StaticResource ToolButton}" Click="LoopToggle_Click" Margin="8,0,0,0" ToolTip="Зациклить">
                                 <fa:IconBlock Icon="RotateRight" Foreground="#FFAAAAAA" FontSize="14"/>
@@ -804,24 +807,29 @@
                 <!-- Статус: кольцо + скрытая подпись «Готово» -->
                 <StackPanel Orientation="Horizontal">
                     <Grid x:Name="ActivityRing" Width="28" Height="28" VerticalAlignment="Center" Cursor="Hand"
-                          Margin="0,0,6,0" ClipToBounds="False"
+                          Margin="0,0,6,0" ClipToBounds="True" SnapsToDevicePixels="True"
                           MouseEnter="SpinnerGrid_MouseEnter" MouseLeave="SpinnerGrid_MouseLeave">
-                        <Ellipse x:Name="RingBg" Width="22" Height="22"
+                        <Ellipse x:Name="RingTrack" Width="22" Height="22"
                                  HorizontalAlignment="Center" VerticalAlignment="Center"
                                  Stroke="#FF555555" StrokeThickness="2.5" Fill="Transparent"/>
-                        <Path x:Name="RingProgress" Stroke="#FF7881FF" StrokeThickness="3" Fill="Transparent"
-                              HorizontalAlignment="Center" VerticalAlignment="Center"
-                              Stretch="None" Visibility="Collapsed"
-                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                        <Ellipse x:Name="RingProgress" Width="22" Height="22"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                                 Stroke="#FF7881FF" StrokeThickness="2.5" Fill="Transparent"
+                                 StrokeDashCap="Round" Visibility="Collapsed"
+                                 RenderTransformOrigin="0.5,0.5">
+                            <Ellipse.RenderTransform>
+                                <RotateTransform Angle="-90"/>
+                            </Ellipse.RenderTransform>
+                        </Ellipse>
                     </Grid>
                     <TextBlock x:Name="StatusText" Text="Готово" Visibility="Collapsed" Width="0" Height="0"
                                AutomationProperties.Name="Готово"/>
                 </StackPanel>
 
                 <Popup x:Name="ActivityPopup" Placement="Top" PlacementTarget="{Binding ElementName=ActivityRing}"
-                       StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade"
+                       StaysOpen="True" AllowsTransparency="True" PopupAnimation="None"
                        IsOpen="False">
-                    <Border Background="#FF2D2D30" BorderBrush="#FF3E3E42" BorderThickness="1"
+                    <Border x:Name="ActivityPopupBorder" Background="#FF2D2D30" BorderBrush="#FF3E3E42" BorderThickness="1"
                             CornerRadius="4" Padding="14,10" MinWidth="200">
                         <StackPanel>
                             <TextBlock x:Name="PopupTitle" Text="" Foreground="#FFCCCCCC" FontSize="11"/>
